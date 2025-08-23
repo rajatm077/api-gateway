@@ -279,10 +279,170 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
     }
   }
 
+  async function getConversationHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      // 1. Extract conversation ID and query parameters
+      const { conversationId } = req.params;
+      const tenantId = req.context!.tenantId;
+      const correlationId = req.correlationId!;
+      
+      // Extract pagination and filtering parameters
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+      const offset = (page - 1) * limit;
+      const channel = req.query.channel as string;
+      const direction = req.query.direction as 'inbound' | 'outbound';
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
+      
+      logger.info('Retrieving conversation history', {
+        conversationId,
+        tenantId,
+        page,
+        limit,
+        channel,
+        direction,
+        correlationId
+      });
+      
+      // 2. Validate conversation exists and belongs to tenant
+      // In a real implementation, this would check the database
+      if (!conversationId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+        throw new ValidationError('Invalid conversation ID format');
+      }
+      
+      // 3. Mock conversation data (in production, this would come from database/cache)
+      const mockConversation = {
+        id: conversationId,
+        tenantId,
+        channel: channel || 'sms',
+        participant: '+1234567890',
+        createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+        lastMessageAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        status: 'active',
+        messageCount: 25,
+        metadata: {
+          tags: ['support', 'billing'],
+          assignedAgent: 'agent_123'
+        }
+      };
+      
+      // 4. Generate mock message history with realistic data
+      const mockMessages = [];
+      const totalMessages = 25;
+      
+      for (let i = 0; i < Math.min(limit, totalMessages - offset); i++) {
+        const messageIndex = totalMessages - offset - i - 1;
+        const isInbound = messageIndex % 3 === 0; // Every 3rd message is inbound
+        const timestamp = new Date(Date.now() - (messageIndex + 1) * 15 * 60 * 1000); // 15 min intervals
+        
+        // Apply direction filter if specified
+        if (direction && ((direction === 'inbound' && !isInbound) || (direction === 'outbound' && isInbound))) {
+          continue;
+        }
+        
+        const message = {
+          id: `msg_${uuidv4()}`,
+          conversationId,
+          direction: isInbound ? 'inbound' : 'outbound',
+          channel: mockConversation.channel,
+          from: isInbound ? mockConversation.participant : 'system',
+          to: isInbound ? 'system' : mockConversation.participant,
+          content: {
+            text: isInbound 
+              ? `Customer message ${messageIndex + 1}: I need help with my order`
+              : `Thank you for contacting us. Let me help you with that. (Response ${messageIndex + 1})`,
+            type: 'text'
+          },
+          status: isInbound ? 'received' : 'delivered',
+          timestamp: timestamp.toISOString(),
+          metadata: {
+            messageIndex: messageIndex + 1,
+            source: isInbound ? 'webhook' : 'api'
+          }
+        };
+        
+        mockMessages.push(message);
+      }
+      
+      // 5. Apply date filtering if specified
+      let filteredMessages = mockMessages;
+      if (startDate || endDate) {
+        filteredMessages = mockMessages.filter(msg => {
+          const msgDate = new Date(msg.timestamp);
+          if (startDate && msgDate < new Date(startDate)) return false;
+          if (endDate && msgDate > new Date(endDate)) return false;
+          return true;
+        });
+      }
+      
+      // 6. Calculate pagination metadata
+      const hasMore = offset + limit < totalMessages;
+      const totalPages = Math.ceil(totalMessages / limit);
+      
+      // 7. Return conversation history response
+      res.json({
+        success: true,
+        data: {
+          conversation: {
+            id: mockConversation.id,
+            channel: mockConversation.channel,
+            participant: mockConversation.participant,
+            createdAt: mockConversation.createdAt,
+            lastMessageAt: mockConversation.lastMessageAt,
+            status: mockConversation.status,
+            messageCount: mockConversation.messageCount,
+            metadata: mockConversation.metadata
+          },
+          messages: filteredMessages,
+          pagination: {
+            page,
+            limit,
+            offset,
+            total: totalMessages,
+            totalPages,
+            hasMore,
+            hasPrevious: page > 1
+          },
+          filters: {
+            channel,
+            direction,
+            startDate,
+            endDate
+          }
+        },
+        meta: {
+          requestId: correlationId,
+          timestamp: new Date().toISOString(),
+          queryTime: '25ms'
+        }
+      });
+      
+      logger.debug('Conversation history retrieved', {
+        conversationId,
+        tenantId,
+        messageCount: filteredMessages.length,
+        totalMessages,
+        page,
+        correlationId
+      });
+      
+    } catch (error) {
+      logger.error('Failed to get conversation history', {
+        error: (error as Error).message,
+        conversationId: req.params.conversationId,
+        tenantId: req.context?.tenantId,
+        correlationId: req.correlationId
+      });
+      next(error);
+    }
+  }
+
   return {
     sendMessage,
     sendBulkMessages,
     getMessageStatus,
-    getMessageEvents
+    getMessageEvents,
+    getConversationHistory
   };
 }

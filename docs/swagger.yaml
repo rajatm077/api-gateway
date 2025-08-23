@@ -199,6 +199,138 @@ paths:
               schema:
                 $ref: '#/components/schemas/MessageEvents'
 
+  /messages/conversations/{conversationId}:
+    get:
+      tags:
+        - Messages
+        - Conversations
+      summary: Get conversation history
+      description: |
+        Retrieve the complete message history for a specific conversation.
+        Supports pagination, filtering by direction (inbound/outbound), channel, and date range.
+      operationId: getConversationHistory
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          description: Unique conversation identifier
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          description: Page number for pagination
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Number of messages per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: channel
+          in: query
+          description: Filter by specific channel
+          schema:
+            type: string
+            enum: [sms, email, whatsapp]
+        - name: direction
+          in: query
+          description: Filter by message direction
+          schema:
+            type: string
+            enum: [inbound, outbound]
+        - name: startDate
+          in: query
+          description: Filter messages from this date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          description: Filter messages until this date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Conversation history retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationHistoryResponse'
+              examples:
+                conversation_history:
+                  summary: Complete conversation history
+                  value:
+                    success: true
+                    data:
+                      conversation:
+                        id: "conv_123e4567-e89b-12d3-a456-426614174000"
+                        channel: "sms"
+                        participant: "+1234567890"
+                        createdAt: "2024-01-15T10:30:00Z"
+                        lastMessageAt: "2024-01-22T14:45:00Z"
+                        status: "active"
+                        messageCount: 25
+                        metadata:
+                          tags: ["support", "billing"]
+                          assignedAgent: "agent_123"
+                      messages:
+                        - id: "msg_123"
+                          conversationId: "conv_123e4567-e89b-12d3-a456-426614174000"
+                          direction: "outbound"
+                          channel: "sms"
+                          from: "system"
+                          to: "+1234567890"
+                          content:
+                            text: "Thank you for contacting us. How can I help you today?"
+                            type: "text"
+                          status: "delivered"
+                          timestamp: "2024-01-22T14:45:00Z"
+                          metadata:
+                            source: "api"
+                        - id: "msg_124"
+                          conversationId: "conv_123e4567-e89b-12d3-a456-426614174000"
+                          direction: "inbound"
+                          channel: "sms"
+                          from: "+1234567890"
+                          to: "system"
+                          content:
+                            text: "I need help with my recent order #12345"
+                            type: "text"
+                          status: "received"
+                          timestamp: "2024-01-22T14:30:00Z"
+                          metadata:
+                            source: "webhook"
+                      pagination:
+                        page: 1
+                        limit: 20
+                        offset: 0
+                        total: 25
+                        totalPages: 2
+                        hasMore: true
+                        hasPrevious: false
+                      filters:
+                        channel: null
+                        direction: null
+                        startDate: null
+                        endDate: null
+                    meta:
+                      requestId: "req_123"
+                      timestamp: "2024-01-22T15:00:00Z"
+                      queryTime: "25ms"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   # Channel APIs
   /channels:
     get:
@@ -773,6 +905,207 @@ components:
               type: integer
             hasMore:
               type: boolean
+
+    ConversationHistoryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            conversation:
+              type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                  description: Unique conversation identifier
+                channel:
+                  type: string
+                  enum: [sms, email, whatsapp]
+                  description: Primary channel for this conversation
+                participant:
+                  type: string
+                  description: External participant (phone number, email, etc.)
+                createdAt:
+                  type: string
+                  format: date-time
+                  description: When the conversation was first created
+                lastMessageAt:
+                  type: string
+                  format: date-time
+                  description: Timestamp of the most recent message
+                status:
+                  type: string
+                  enum: [active, archived, blocked, closed]
+                  description: Current conversation status
+                messageCount:
+                  type: integer
+                  description: Total number of messages in conversation
+                metadata:
+                  type: object
+                  description: Additional conversation metadata
+                  properties:
+                    tags:
+                      type: array
+                      items:
+                        type: string
+                    assignedAgent:
+                      type: string
+                    priority:
+                      type: string
+                      enum: [low, normal, high, urgent]
+                  additionalProperties: true
+            messages:
+              type: array
+              description: Array of messages in the conversation (ordered by timestamp, newest first)
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    description: Unique message identifier
+                  conversationId:
+                    type: string
+                    format: uuid
+                    description: Parent conversation ID
+                  direction:
+                    type: string
+                    enum: [inbound, outbound]
+                    description: Message direction relative to the system
+                  channel:
+                    type: string
+                    enum: [sms, email, whatsapp]
+                    description: Channel through which message was sent/received
+                  from:
+                    type: string
+                    description: Sender identifier (phone, email, system, etc.)
+                  to:
+                    type: string
+                    description: Recipient identifier
+                  content:
+                    type: object
+                    description: Message content (format varies by channel)
+                    properties:
+                      text:
+                        type: string
+                        description: Plain text content
+                      type:
+                        type: string
+                        enum: [text, image, document, audio, video, location, template]
+                        description: Content type
+                      subject:
+                        type: string
+                        description: Email subject (email channel only)
+                      html:
+                        type: string
+                        description: HTML content (email channel only)
+                      attachments:
+                        type: array
+                        description: File attachments
+                        items:
+                          type: object
+                          properties:
+                            filename:
+                              type: string
+                            contentType:
+                              type: string
+                            size:
+                              type: integer
+                            url:
+                              type: string
+                    additionalProperties: true
+                  status:
+                    type: string
+                    enum: [queued, sent, delivered, failed, read, received]
+                    description: Current message status
+                  timestamp:
+                    type: string
+                    format: date-time
+                    description: When the message was created/received
+                  deliveredAt:
+                    type: string
+                    format: date-time
+                    description: When the message was delivered (if applicable)
+                  readAt:
+                    type: string
+                    format: date-time
+                    description: When the message was read (if supported by channel)
+                  metadata:
+                    type: object
+                    description: Additional message metadata
+                    properties:
+                      source:
+                        type: string
+                        enum: [api, webhook, system]
+                      messageIndex:
+                        type: integer
+                      retryCount:
+                        type: integer
+                      errorCode:
+                        type: string
+                      errorMessage:
+                        type: string
+                    additionalProperties: true
+            pagination:
+              type: object
+              properties:
+                page:
+                  type: integer
+                  description: Current page number
+                limit:
+                  type: integer
+                  description: Messages per page
+                offset:
+                  type: integer
+                  description: Number of messages skipped
+                total:
+                  type: integer
+                  description: Total number of messages in conversation
+                totalPages:
+                  type: integer
+                  description: Total number of pages
+                hasMore:
+                  type: boolean
+                  description: Whether there are more messages available
+                hasPrevious:
+                  type: boolean
+                  description: Whether there are previous pages available
+            filters:
+              type: object
+              description: Applied filters (null if not used)
+              properties:
+                channel:
+                  type: string
+                  enum: [sms, email, whatsapp]
+                  nullable: true
+                direction:
+                  type: string
+                  enum: [inbound, outbound]
+                  nullable: true
+                startDate:
+                  type: string
+                  format: date-time
+                  nullable: true
+                endDate:
+                  type: string
+                  format: date-time
+                  nullable: true
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+              description: Unique request identifier for tracing
+            timestamp:
+              type: string
+              format: date-time
+            queryTime:
+              type: string
+              description: Time taken to execute the query
+              example: "25ms"
 
     # Channel Schemas
     ChannelList:

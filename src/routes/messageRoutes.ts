@@ -197,6 +197,24 @@ export function createMessageRoutes(dependencies: RouteDependencies): Router {
       });
     }
   );
-  
+
+  // Add a route for fetching conversation history
+  router.get(
+    '/conversations/:conversationId',
+    authMiddleware,
+    rateLimitMiddleware,
+    validationMiddleware(Joi.object({
+      conversationId: Joi.string().uuid().required(),
+      page: Joi.number().integer().min(1).default(1),
+      limit: Joi.number().integer().min(1).max(100).default(20),
+      channel: Joi.string().valid('sms', 'email', 'whatsapp').optional(),
+      direction: Joi.string().valid('inbound', 'outbound').optional(),
+      startDate: Joi.date().iso().optional(),
+      endDate: Joi.date().iso().min(Joi.ref('startDate')).optional()
+    })),
+    messageController.getConversationHistory
+  );
+
+
   return router;
 }
