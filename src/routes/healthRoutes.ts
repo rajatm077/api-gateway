@@ -110,7 +110,7 @@ export function createHealthRoutes(dependencies: HealthDependencies): Router {
           service: 'kafka',
           status: isHealthy ? 'healthy' : 'unhealthy',
           responseTime,
-          isConnected: dependencies.kafkaProducer.getConnectionStatus(),
+          isConnected: dependencies.kafkaProducer.isConnected(),
           timestamp: new Date().toISOString()
         });
       } catch (error) {

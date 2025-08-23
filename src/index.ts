@@ -122,7 +122,7 @@ function setupGracefulShutdown(): void {
       }
 
       // Close Kafka producer connection
-      if (kafkaProducerService && kafkaProducerService.getConnectionStatus()) {
+      if (kafkaProducerService && kafkaProducerService.isConnected()) {
         logger.info('Disconnecting Kafka producer...');
         await kafkaProducerService.disconnect();
         logger.info('Kafka producer disconnected');

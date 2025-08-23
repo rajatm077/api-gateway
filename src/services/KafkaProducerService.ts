@@ -2,10 +2,11 @@ import { Kafka, Producer, Message, ProducerRecord } from 'kafkajs';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { MessagePayload, KafkaConfig, RetryConfig } from '../types/kafkaProducerService';
+import { IKafkaProducerService } from '../types/services';
 
-export class KafkaProducerService {
+export class KafkaProducerService implements IKafkaProducerService {
   private producer: Producer;
-  private isConnected: boolean;
+  private connectionStatus: boolean;
   private retryConfig: RetryConfig;
   private kafka: Kafka;
   
@@ -44,17 +45,17 @@ export class KafkaProducerService {
     };
     
     // 4. Initialize connection flag as false
-    this.isConnected = false;
+    this.connectionStatus = false;
     
     // 5. Setup producer event listeners
     this.producer.on('producer.connect', () => {
       logger.info('Kafka producer connected');
-      this.isConnected = true;
+      this.connectionStatus = true;
     });
     
     this.producer.on('producer.disconnect', () => {
       logger.warn('Kafka producer disconnected');
-      this.isConnected = false;
+      this.connectionStatus = false;
     });
     
     this.producer.on('producer.network.request_timeout', (payload) => {
@@ -65,7 +66,7 @@ export class KafkaProducerService {
   async connect(): Promise<void> {
     try {
       // 1. Check if already connected
-      if (this.isConnected) {
+      if (this.connectionStatus) {
         logger.warn('Kafka producer already connected');
         return;
       }
@@ -74,7 +75,7 @@ export class KafkaProducerService {
       await this.producer.connect();
       
       // 3. Set isConnected flag to true
-      this.isConnected = true;
+      this.connectionStatus = true;
       
       // 4. Log successful connection
       logger.info('Kafka producer connected successfully');
@@ -91,7 +92,7 @@ export class KafkaProducerService {
   
   async publishMessage(topic: string, message: MessagePayload): Promise<void> {
     // 1. Validate connection status
-    if (!this.isConnected) {
+    if (!this.connectionStatus) {
       throw new Error('Kafka producer not connected');
     }
     
@@ -138,7 +139,7 @@ export class KafkaProducerService {
   
   async publishBatch(topic: string, messages: MessagePayload[]): Promise<void> {
     // 1. Validate connection and messages array
-    if (!this.isConnected) {
+    if (!this.connectionStatus) {
       throw new Error('Kafka producer not connected');
     }
     
@@ -237,7 +238,7 @@ export class KafkaProducerService {
   async disconnect(): Promise<void> {
     try {
       // 1. Check if connected
-      if (!this.isConnected) {
+      if (!this.connectionStatus) {
         logger.warn('Kafka producer already disconnected');
         return;
       }
@@ -246,7 +247,7 @@ export class KafkaProducerService {
       await this.producer.disconnect();
       
       // 3. Set isConnected to false
-      this.isConnected = false;
+      this.connectionStatus = false;
       
       // 4. Log disconnection
       logger.info('Kafka producer disconnected successfully');
@@ -325,8 +326,8 @@ export class KafkaProducerService {
   }
   
   // Utility methods
-  getConnectionStatus(): boolean {
-    return this.isConnected;
+  isConnected(): boolean {
+    return this.connectionStatus;
   }
   
   async getTopicMetadata(topic: string): Promise<any> {
@@ -348,7 +349,7 @@ export class KafkaProducerService {
   async isHealthy(): Promise<boolean> {
     try {
       // Check if producer is connected and functional
-      if (!this.isConnected || !this.producer) {
+      if (!this.connectionStatus || !this.producer) {
         return false;
       }
       
@@ -365,7 +366,7 @@ export class KafkaProducerService {
     } catch (error: any) {
       logger.debug('Kafka health check failed', {
         error: error.message,
-        isConnected: this.isConnected
+        isConnected: this.connectionStatus
       });
       return false;
     }

@@ -18,7 +18,7 @@ export function createHealthController(redis: Redis, kafkaProducer: KafkaProduce
     // Basic health check - just returns OK if service is running
     // No dependency checks
     
-    res.json({
+    const response: HealthCheckResponse = {
       success: true,
       data: {
         status: 'healthy',
@@ -29,7 +29,9 @@ export function createHealthController(redis: Redis, kafkaProducer: KafkaProduce
         environment: process.env.NODE_ENV || 'development',
         nodeVersion: process.version
       }
-    });
+    };
+    
+    res.json(response);
   }
 
   async function livenessProbe(req: Request, res: Response): Promise<void> {
@@ -39,19 +41,25 @@ export function createHealthController(redis: Redis, kafkaProducer: KafkaProduce
     
     try {
       // Simple check - if we can respond, we're alive
-      res.status(200).json({ 
+      const response: LivenessProbeResponse = { 
         status: 'alive',
         timestamp: new Date().toISOString(),
         uptime: Math.floor(process.uptime())
-      });
+      };
+      
+      res.status(200).json(response);
       
       // Note: If this doesn't respond, K8s will restart the pod
     } catch (error) {
       // This should rarely happen, but if it does, we're not alive
-      res.status(500).json({ 
+      const errorResponse: LivenessProbeResponse = { 
         status: 'error',
+        timestamp: new Date().toISOString(),
+        uptime: Math.floor(process.uptime()),
         error: (error as Error).message 
-      });
+      };
+      
+      res.status(500).json(errorResponse);
     }
   }
 
@@ -110,7 +118,7 @@ export function createHealthController(redis: Redis, kafkaProducer: KafkaProduce
       const responseTime = Date.now() - startTime;
       
       // 5. Return appropriate status
-      const responseData = {
+      const responseData: ReadinessProbeResponse = {
         status: isReady ? 'ready' : 'not ready',
         checks,
         responseTime,
@@ -140,11 +148,13 @@ export function createHealthController(redis: Redis, kafkaProducer: KafkaProduce
         error: (error as Error).message 
       });
       
-      res.status(503).json({
+      const errorResponse: ReadinessProbeResponse = {
         status: 'error',
         message: (error as Error).message,
         timestamp: new Date().toISOString()
-      });
+      };
+      
+      res.status(503).json(errorResponse);
     }
   }
 

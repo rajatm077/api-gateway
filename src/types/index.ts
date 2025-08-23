@@ -1,5 +1,8 @@
 // TypeScript type definitions
 
+// Import TenantContext from authService to avoid duplication
+import { TenantContext } from './authService';
+
 // Request extension to add custom properties
 declare global {
   namespace Express {
@@ -9,20 +12,6 @@ declare global {
       startTime?: number;
     }
   }
-}
-
-// Tenant context attached to authenticated requests
-export interface TenantContext {
-  tenantId: string;
-  userId?: string;
-  authMethod: 'jwt' | 'apikey';
-  permissions: string[];
-  rateLimits?: {
-    perSecond: number;
-    perMinute: number;
-    perDay: number;
-  };
-  enabledChannels: string[];
 }
 
 // Message types

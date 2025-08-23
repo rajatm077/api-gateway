@@ -6,6 +6,15 @@ import { logger } from '../utils/logger';
 import { KafkaProducerService } from '../services/KafkaProducerService';
 import { MessagePayload } from '../types/kafkaProducerService';
 import { NotFoundError, ValidationError } from '../types/errorHandlerMiddleware';
+import { 
+  ConversationHistoryResponse,
+  ConversationMessage,
+  ConversationInfo,
+  MessageContent,
+  ConversationPagination,
+  ConversationFilters
+} from '../types/messageController';
+import { MessageRouteEvent, BulkMessageRouteEvent } from '../types/kafkaEvents';
 
 export function createMessageController(kafkaProducer: KafkaProducerService) {
   
@@ -16,11 +25,11 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
       const tenantId = req.context!.tenantId;
       const correlationId = req.correlationId!;
       
-      // 2. Build message payload
+      // 2. Build message payload using Kafka event types
       const messageId = uuidv4();
       const finalConversationId = conversationId || uuidv4();
       
-      const payload: MessagePayload = {
+      const kafkaEvent: Omit<MessageRouteEvent, 'eventId' | 'source' | 'version'> = {
         messageId,
         tenantId,
         conversationId: finalConversationId,
@@ -39,21 +48,29 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
         }
       };
       
+      // Add required Kafka event fields
+      const fullKafkaEvent: MessageRouteEvent = {
+        ...kafkaEvent,
+        eventId: uuidv4(),
+        source: 'api-gateway',
+        version: '1.0'
+      };
+      
       // 3. Determine Kafka topic
       const topic = `message.channel.route.${channel}`;
       
       // 4. Publish to Kafka
-      await kafkaProducer.publishMessage(topic, payload);
+      await kafkaProducer.publishMessage(topic, fullKafkaEvent);
       
       // 5. Return success response (202 Accepted)
       res.status(202).json({
         success: true,
         data: {
-          messageId: payload.messageId,
+          messageId: fullKafkaEvent.messageId,
           status: 'queued',
-          conversationId: payload.conversationId,
-          channel: payload.channel,
-          createdAt: new Date(payload.timestamp).toISOString()
+          conversationId: fullKafkaEvent.conversationId,
+          channel: fullKafkaEvent.channel,
+          createdAt: new Date(fullKafkaEvent.timestamp).toISOString()
         },
         meta: {
           requestId: req.correlationId,
@@ -63,10 +80,10 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
       
       // 6. Log successful message submission
       logger.info('Message queued successfully', {
-        messageId: payload.messageId,
-        channel: payload.channel,
-        tenantId: payload.tenantId,
-        conversationId: payload.conversationId,
+        messageId: fullKafkaEvent.messageId,
+        channel: fullKafkaEvent.channel,
+        tenantId: fullKafkaEvent.tenantId,
+        conversationId: fullKafkaEvent.conversationId,
         correlationId: req.correlationId,
         recipientCount: Array.isArray(to) ? to.length : 1
       });
@@ -312,10 +329,9 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
       }
       
       // 3. Mock conversation data (in production, this would come from database/cache)
-      const mockConversation = {
+      const mockConversation: ConversationInfo = {
         id: conversationId,
-        tenantId,
-        channel: channel || 'sms',
+        channel: (channel as any) || 'sms',
         participant: '+1234567890',
         createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
         lastMessageAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
@@ -328,7 +344,7 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
       };
       
       // 4. Generate mock message history with realistic data
-      const mockMessages = [];
+      const mockMessages: ConversationMessage[] = [];
       const totalMessages = 25;
       
       for (let i = 0; i < Math.min(limit, totalMessages - offset); i++) {
@@ -341,7 +357,7 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
           continue;
         }
         
-        const message = {
+        const message: ConversationMessage = {
           id: `msg_${uuidv4()}`,
           conversationId,
           direction: isInbound ? 'inbound' : 'outbound',
@@ -380,8 +396,25 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
       const hasMore = offset + limit < totalMessages;
       const totalPages = Math.ceil(totalMessages / limit);
       
+      const pagination: ConversationPagination = {
+        page,
+        limit,
+        offset,
+        total: totalMessages,
+        totalPages,
+        hasMore,
+        hasPrevious: page > 1
+      };
+      
+      const filters: ConversationFilters = {
+        channel: channel as any,
+        direction,
+        startDate,
+        endDate
+      };
+      
       // 7. Return conversation history response
-      res.json({
+      const response: ConversationHistoryResponse = {
         success: true,
         data: {
           conversation: {
@@ -395,28 +428,17 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
             metadata: mockConversation.metadata
           },
           messages: filteredMessages,
-          pagination: {
-            page,
-            limit,
-            offset,
-            total: totalMessages,
-            totalPages,
-            hasMore,
-            hasPrevious: page > 1
-          },
-          filters: {
-            channel,
-            direction,
-            startDate,
-            endDate
-          }
+          pagination,
+          filters
         },
         meta: {
           requestId: correlationId,
           timestamp: new Date().toISOString(),
           queryTime: '25ms'
         }
-      });
+      };
+      
+      res.json(response);
       
       logger.debug('Conversation history retrieved', {
         conversationId,
