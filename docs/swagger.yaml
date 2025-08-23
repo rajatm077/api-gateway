@@ -1,0 +1,1267 @@
+openapi: 3.0.3
+info:
+  title: API Gateway Service
+  description: |
+    Multi-channel messaging API Gateway that provides unified access to SMS, Email, and WhatsApp messaging services.
+    
+    ## Features
+    - Multi-channel message sending (SMS, Email, WhatsApp)
+    - Bulk message processing
+    - Real-time webhook handling
+    - Rate limiting and authentication
+    - Conversation management
+    - Channel health monitoring
+    
+    ## Authentication
+    Supports two authentication methods:
+    - **JWT Bearer Token**: For user-based authentication
+    - **API Key**: For service-to-service authentication (X-API-Key header)
+    
+    ## Rate Limiting
+    Hierarchical rate limiting is applied:
+    - Global: 1000 requests/second
+    - Per-tenant: 50 requests/second
+    - Per-channel: Channel-specific limits
+    
+  version: 1.0.0
+  contact:
+    name: API Gateway Team
+    email: api-gateway@company.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api-gateway.company.com/api/v1
+    description: Production server
+  - url: https://staging-api-gateway.company.com/api/v1
+    description: Staging server
+  - url: http://localhost:3000/api/v1
+    description: Development server
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  # Message APIs
+  /messages/send:
+    post:
+      tags:
+        - Messages
+      summary: Send a message
+      description: |
+        Send a single message through one or multiple channels.
+        Supports SMS, Email, and WhatsApp channels with channel-specific content formatting.
+      operationId: sendMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+            examples:
+              sms_message:
+                summary: SMS Message
+                value:
+                  to: "+1234567890"
+                  channel: "sms"
+                  content:
+                    text: "Hello! Your order #12345 has been shipped."
+                  metadata:
+                    orderId: "12345"
+              email_message:
+                summary: Email Message
+                value:
+                  to: "user@example.com"
+                  channel: "email"
+                  content:
+                    subject: "Order Confirmation"
+                    text: "Thank you for your order!"
+                    html: "<h1>Thank you for your order!</h1><p>Order #12345</p>"
+                  conversationId: "conv_123"
+              whatsapp_message:
+                summary: WhatsApp Message
+                value:
+                  to: "+1234567890"
+                  channel: "whatsapp"
+                  content:
+                    text: "Your appointment is confirmed for tomorrow at 2 PM"
+                    templateId: "appointment_confirmation"
+                    templateParams:
+                      appointment_time: "2 PM"
+      responses:
+        '200':
+          description: Message sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /messages/bulk:
+    post:
+      tags:
+        - Messages
+      summary: Send bulk messages
+      description: |
+        Send messages to multiple recipients efficiently.
+        Supports up to 10,000 recipients per batch with automatic chunking.
+      operationId: sendBulkMessages
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkMessageRequest'
+      responses:
+        '200':
+          description: Bulk messages queued successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkMessageResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+
+  /messages/{messageId}:
+    get:
+      tags:
+        - Messages
+      summary: Get message status
+      description: Retrieve the current status and details of a specific message
+      operationId: getMessageStatus
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          description: Unique message identifier
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Message details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageStatus'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /messages/{messageId}/events:
+    get:
+      tags:
+        - Messages
+      summary: Get message events
+      description: Retrieve all events (sent, delivered, failed, etc.) for a specific message
+      operationId: getMessageEvents
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          description: Maximum number of events to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Number of events to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Message events retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageEvents'
+
+  # Channel APIs
+  /channels:
+    get:
+      tags:
+        - Channels
+      summary: List available channels
+      description: Get list of all available messaging channels and their current status
+      operationId: listChannels
+      responses:
+        '200':
+          description: Channels retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelList'
+
+  /channels/{channelId}:
+    get:
+      tags:
+        - Channels
+      summary: Get channel details
+      description: Get detailed information about a specific messaging channel
+      operationId: getChannelDetails
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [sms, email, whatsapp]
+      responses:
+        '200':
+          description: Channel details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelDetails'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /channels/{channelId}/status:
+    get:
+      tags:
+        - Channels
+      summary: Get channel health status
+      description: Check the current health and operational status of a messaging channel
+      operationId: getChannelStatus
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [sms, email, whatsapp]
+      responses:
+        '200':
+          description: Channel status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelStatus'
+
+  /channels/{channelId}/config:
+    patch:
+      tags:
+        - Channels
+      summary: Update channel configuration
+      description: Update configuration settings for a specific channel
+      operationId: updateChannelConfig
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [sms, email, whatsapp]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelConfigUpdate'
+      responses:
+        '200':
+          description: Channel configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelConfig'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /channels/{channelId}/test:
+    post:
+      tags:
+        - Channels
+      summary: Test channel
+      description: Send a test message through the specified channel to verify configuration
+      operationId: testChannel
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [sms, email, whatsapp]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelTestRequest'
+      responses:
+        '200':
+          description: Test message sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelTestResponse'
+
+  # Conversation APIs
+  /conversations:
+    get:
+      tags:
+        - Conversations
+      summary: List conversations
+      description: Get a paginated list of conversations for the authenticated tenant
+      operationId: listConversations
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: channel
+          in: query
+          description: Filter by channel
+          schema:
+            type: string
+            enum: [sms, email, whatsapp]
+      responses:
+        '200':
+          description: Conversations retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationList'
+
+  /conversations/{conversationId}:
+    get:
+      tags:
+        - Conversations
+      summary: Get conversation details
+      description: Retrieve details and message history for a specific conversation
+      operationId: getConversation
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Conversation retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationDetails'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /conversations/{conversationId}/messages:
+    post:
+      tags:
+        - Conversations
+      summary: Send message in conversation
+      description: Send a message as part of an existing conversation
+      operationId: sendConversationMessage
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationMessageRequest'
+      responses:
+        '200':
+          description: Message sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  # Health and Monitoring
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Basic health check
+      description: Basic health check endpoint that returns service status
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /health/live:
+    get:
+      tags:
+        - Health
+      summary: Liveness probe
+      description: Kubernetes liveness probe endpoint
+      operationId: livenessProbe
+      security: []
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LivenessResponse'
+
+  /health/ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness probe
+      description: Kubernetes readiness probe that checks dependencies
+      operationId: readinessProbe
+      security: []
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '503':
+          description: Service is not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+
+  /metrics:
+    get:
+      tags:
+        - Monitoring
+      summary: Prometheus metrics
+      description: Prometheus-compatible metrics endpoint
+      operationId: getMetrics
+      security: []
+      responses:
+        '200':
+          description: Metrics data
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  # HELP api_requests_total Total number of API requests
+                  # TYPE api_requests_total counter
+                  api_requests_total{method="POST",endpoint="/messages/send",status="200"} 1234
+
+# Webhook endpoints (separate from main API)
+  /webhooks/{channel}/{tenant}:
+    post:
+      tags:
+        - Webhooks
+      summary: Receive provider webhooks
+      description: |
+        Endpoint for receiving webhooks from messaging providers.
+        Each channel and tenant has a unique webhook URL.
+      operationId: receiveWebhook
+      security: []
+      parameters:
+        - name: channel
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [sms, email, whatsapp]
+        - name: tenant
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: Provider-specific webhook payload
+        content:
+          application/json:
+            schema:
+              type: object
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Webhook processed successfully
+        '400':
+          description: Invalid webhook payload
+        '401':
+          description: Invalid webhook signature
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token for user authentication
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for service authentication
+
+  schemas:
+    # Message Schemas
+    SendMessageRequest:
+      type: object
+      required:
+        - to
+        - channel
+        - content
+      properties:
+        to:
+          oneOf:
+            - type: string
+              description: Single recipient
+            - type: array
+              items:
+                type: string
+              description: Multiple recipients
+        channel:
+          type: string
+          enum: [sms, email, whatsapp]
+          description: Messaging channel
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        conversationId:
+          type: string
+          format: uuid
+          description: Optional conversation ID to group related messages
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional metadata for the message
+        priority:
+          type: string
+          enum: [low, normal, high]
+          default: normal
+          description: Message priority level
+        scheduledAt:
+          type: string
+          format: date-time
+          description: Schedule message for future delivery
+
+    MessageContent:
+      type: object
+      properties:
+        text:
+          type: string
+          maxLength: 1600
+          description: Plain text content (required for SMS, optional for email)
+        subject:
+          type: string
+          maxLength: 200
+          description: Email subject line (required for email)
+        html:
+          type: string
+          maxLength: 100000
+          description: HTML content for email
+        templateId:
+          type: string
+          description: Template ID for WhatsApp
+        templateParams:
+          type: object
+          additionalProperties: true
+          description: Parameters for template substitution
+
+    BulkMessageRequest:
+      type: object
+      required:
+        - recipients
+        - channels
+        - content
+      properties:
+        recipients:
+          oneOf:
+            - type: array
+              items:
+                type: string
+              maxItems: 10000
+              description: List of recipient addresses
+            - type: object
+              properties:
+                type:
+                  type: string
+                  enum: [file, segment]
+                source:
+                  type: string
+                  description: File path or segment ID
+                format:
+                  type: string
+                  enum: [csv, json]
+        channels:
+          type: array
+          items:
+            type: string
+            enum: [sms, email, whatsapp]
+          minItems: 1
+          maxItems: 3
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        options:
+          type: object
+          properties:
+            batchSize:
+              type: integer
+              minimum: 100
+              maximum: 1000
+              default: 500
+            rateLimit:
+              type: integer
+              minimum: 1
+              maximum: 50
+              default: 10
+            scheduledAt:
+              type: string
+              format: date-time
+            retryFailures:
+              type: boolean
+              default: true
+
+    MessageResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            messageId:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: [queued, sent, delivered, failed]
+            channel:
+              type: string
+              enum: [sms, email, whatsapp]
+            queuedAt:
+              type: string
+              format: date-time
+            estimatedDelivery:
+              type: string
+              format: date-time
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    BulkMessageResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            batchId:
+              type: string
+              format: uuid
+            totalRecipients:
+              type: integer
+            estimatedDuration:
+              type: string
+            status:
+              type: string
+              enum: [queued, processing, completed, failed]
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    MessageStatus:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            messageId:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: [queued, sent, delivered, failed, expired]
+            channel:
+              type: string
+            recipient:
+              type: string
+            createdAt:
+              type: string
+              format: date-time
+            sentAt:
+              type: string
+              format: date-time
+            deliveredAt:
+              type: string
+              format: date-time
+            failedAt:
+              type: string
+              format: date-time
+            errorCode:
+              type: string
+            errorMessage:
+              type: string
+            retryCount:
+              type: integer
+            metadata:
+              type: object
+
+    MessageEvents:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            messageId:
+              type: string
+              format: uuid
+            events:
+              type: array
+              items:
+                type: object
+                properties:
+                  eventId:
+                    type: string
+                    format: uuid
+                  type:
+                    type: string
+                    enum: [queued, sent, delivered, failed, clicked, opened]
+                  timestamp:
+                    type: string
+                    format: date-time
+                  details:
+                    type: object
+            totalEvents:
+              type: integer
+            hasMore:
+              type: boolean
+
+    # Channel Schemas
+    ChannelList:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            channels:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  status:
+                    type: string
+                    enum: [active, inactive, maintenance]
+                  capabilities:
+                    type: array
+                    items:
+                      type: string
+
+    ChannelDetails:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            status:
+              type: string
+              enum: [active, inactive, maintenance]
+            configuration:
+              type: object
+            capabilities:
+              type: array
+              items:
+                type: string
+            rateLimits:
+              type: object
+              properties:
+                perSecond:
+                  type: integer
+                perMinute:
+                  type: integer
+                perDay:
+                  type: integer
+
+    ChannelStatus:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            channel:
+              type: string
+            status:
+              type: string
+              enum: [healthy, degraded, down]
+            lastChecked:
+              type: string
+              format: date-time
+            responseTime:
+              type: integer
+              description: Response time in milliseconds
+            errorRate:
+              type: number
+              description: Error rate percentage
+            uptime:
+              type: number
+              description: Uptime percentage
+
+    ChannelConfigUpdate:
+      type: object
+      properties:
+        webhookUrl:
+          type: string
+          format: uri
+        webhookSecret:
+          type: string
+          minLength: 32
+        rateLimits:
+          type: object
+          properties:
+            perSecond:
+              type: integer
+              minimum: 1
+              maximum: 100
+            perMinute:
+              type: integer
+              minimum: 1
+              maximum: 5000
+            perDay:
+              type: integer
+              minimum: 1
+              maximum: 100000
+        settings:
+          type: object
+          additionalProperties: true
+
+    ChannelConfig:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            channel:
+              type: string
+            configuration:
+              type: object
+            updatedAt:
+              type: string
+              format: date-time
+
+    ChannelTestRequest:
+      type: object
+      properties:
+        recipient:
+          type: string
+          description: Test recipient (optional, uses default if not provided)
+        message:
+          type: string
+          maxLength: 1000
+          description: Custom test message
+        testType:
+          type: string
+          enum: [send, webhook, both]
+          default: send
+
+    ChannelTestResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            testId:
+              type: string
+            results:
+              type: object
+              properties:
+                send:
+                  type: object
+                  properties:
+                    success:
+                      type: boolean
+                    messageId:
+                      type: string
+                    error:
+                      type: string
+                webhook:
+                  type: object
+                  properties:
+                    success:
+                      type: boolean
+                    responseTime:
+                      type: integer
+                    error:
+                      type: string
+
+    # Conversation Schemas
+    ConversationList:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            conversations:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  channel:
+                    type: string
+                  participant:
+                    type: string
+                  lastMessageAt:
+                    type: string
+                    format: date-time
+                  messageCount:
+                    type: integer
+                  status:
+                    type: string
+                    enum: [active, archived, blocked]
+            pagination:
+              $ref: '#/components/schemas/Pagination'
+
+    ConversationDetails:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            channel:
+              type: string
+            participant:
+              type: string
+            createdAt:
+              type: string
+              format: date-time
+            lastMessageAt:
+              type: string
+              format: date-time
+            status:
+              type: string
+              enum: [active, archived, blocked]
+            messages:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  direction:
+                    type: string
+                    enum: [inbound, outbound]
+                  content:
+                    type: object
+                  timestamp:
+                    type: string
+                    format: date-time
+                  status:
+                    type: string
+
+    ConversationMessageRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          $ref: '#/components/schemas/MessageContent'
+        metadata:
+          type: object
+          additionalProperties: true
+
+    # Health Schemas
+    HealthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [healthy]
+            service:
+              type: string
+            version:
+              type: string
+            uptime:
+              type: integer
+            timestamp:
+              type: string
+              format: date-time
+
+    LivenessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [alive]
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: integer
+
+    ReadinessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, not ready]
+        checks:
+          type: object
+          properties:
+            redis:
+              type: boolean
+            kafka:
+              type: boolean
+            serviceRegistry:
+              type: boolean
+        responseTime:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+
+    # Common Schemas
+    ResponseMeta:
+      type: object
+      properties:
+        requestId:
+          type: string
+          description: Unique request identifier for tracing
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+          description: API version
+
+    Pagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+        offset:
+          type: integer
+        total:
+          type: integer
+        hasMore:
+          type: boolean
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code
+            message:
+              type: string
+              description: Human-readable error message
+            details:
+              type: object
+              description: Additional error details
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+  responses:
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                properties:
+                  error:
+                    properties:
+                      code:
+                        example: VALIDATION_ERROR
+                      message:
+                        example: Request validation failed
+                      details:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            field:
+                              type: string
+                            message:
+                              type: string
+                            value:
+                              type: string
+
+    Unauthorized:
+      description: Authentication required or invalid
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                properties:
+                  error:
+                    properties:
+                      code:
+                        example: UNAUTHORIZED
+                      message:
+                        example: Invalid or missing authentication token
+
+    RateLimitExceeded:
+      description: Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: string
+          description: Request limit per time window
+        X-RateLimit-Remaining:
+          schema:
+            type: string
+          description: Remaining requests in current window
+        X-RateLimit-Reset:
+          schema:
+            type: string
+          description: Time when the rate limit resets (Unix timestamp)
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                properties:
+                  error:
+                    properties:
+                      code:
+                        example: RATE_LIMIT_EXCEEDED
+                      message:
+                        example: Too many requests, please retry after 30 seconds
+                      details:
+                        properties:
+                          retryAfter:
+                            type: integer
+                          resetAt:
+                            type: string
+                            format: date-time
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                properties:
+                  error:
+                    properties:
+                      code:
+                        example: NOT_FOUND
+                      message:
+                        example: The requested resource was not found
+
+    ServiceUnavailable:
+      description: Service temporarily unavailable
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ErrorResponse'
+              - type: object
+                properties:
+                  error:
+                    properties:
+                      code:
+                        example: SERVICE_UNAVAILABLE
+                      message:
+                        example: Service temporarily unavailable
+
+tags:
+  - name: Messages
+    description: Message sending and status operations
+  - name: Channels
+    description: Channel configuration and management
+  - name: Conversations
+    description: Conversation management and history
+  - name: Webhooks
+    description: Webhook endpoints for provider callbacks
+  - name: Health
+    description: Health check and monitoring endpoints
+  - name: Monitoring
+    description: Metrics and observability endpoints

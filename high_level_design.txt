@@ -1,0 +1,382 @@
+# API Gateway Service - High Level Design
+
+## 1. Service Architecture
+
+### 1.1 Component Overview
+```
+┌────────────────────────────────────────────────────────────┐
+│                    API GATEWAY SERVICE                     │
+│                      (PORT: 3000)                          │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │              EXPRESS.JS APPLICATION                  │  │
+│  ├──────────────────────────────────────────────────────┤  │
+│  │                                                      │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │  │
+│  │  │   Routes    │  │ Middlewares │  │ Controllers │ │  │
+│  │  │             │  │             │  │             │ │  │
+│  │  │ • Messages  │  │ • Auth      │  │ • Message   │ │  │
+│  │  │ • Channels  │  │ • RateLimit │  │ • Channel   │ │  │
+│  │  │ • Webhooks  │  │ • Validate  │  │ • Webhook   │ │  │
+│  │  │ • Health    │  │ • Error     │  │ • Convers.  │ │  │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │  │
+│  │                                                      │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                            │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │                  CORE SERVICES                       │  │
+│  ├──────────────────────────────────────────────────────┤  │
+│  │                                                      │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │  │
+│  │  │    Auth     │  │ RateLimiter │  │   Kafka     │ │  │
+│  │  │   Service   │  │   Service   │  │  Producer   │ │  │
+│  │  │             │  │             │  │             │ │  │
+│  │  │ • JWT       │  │ • Token     │  │ • Publish   │ │  │
+│  │  │ • API Keys  │  │   Bucket    │  │ • Batch     │ │  │
+│  │  │ • Webhook   │  │ • Redis     │  │ • Retry     │ │  │
+│  │  │   Signature │  │ • Sliding   │  │ • DLQ       │ │  │
+│  │  │             │  │   Window    │  │             │ │  │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │  │
+│  │                                                      │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │  │
+│  │  │  Validator  │  │   Logger    │  │   Metrics   │ │  │
+│  │  │   Service   │  │   Service   │  │   Service   │ │  │
+│  │  │             │  │             │  │             │ │  │
+│  │  │ • JSON      │  │ • Winston   │  │ • Prometheus│ │  │
+│  │  │   Schema    │  │ • Context   │  │ • Custom    │ │  │
+│  │  │ • Joi/Zod   │  │ • Trace ID  │  │   Metrics   │ │  │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │  │
+│  │                                                      │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                            │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │              EXTERNAL CONNECTIONS                    │  │
+│  ├──────────────────────────────────────────────────────┤  │
+│  │                                                      │  │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │  │
+│  │  │    Redis    │  │    Kafka    │  │   Service   │ │  │
+│  │  │   Client    │  │   Client    │  │  Registry   │ │  │
+│  │  │             │  │             │  │   Client    │ │  │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │  │
+│  │                                                      │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+```
+
+### 1.2 Technology Stack
+- **Framework**: Express.js with TypeScript
+- **Authentication**: jsonwebtoken, passport.js
+- **Rate Limiting**: Redis with ioredis client
+- **Message Queue**: KafkaJS
+- **Validation**: Joi or Zod
+- **Logging**: Winston or Pino
+- **Metrics**: prom-client (Prometheus)
+- **HTTP Client**: Axios (for Service Registry)
+- **Testing**: Jest, Supertest
+
+## 2. API Endpoints
+
+### 2.1 Message APIs
+```typescript
+POST   /api/v1/messages/send         // Send single/multi-channel message
+POST   /api/v1/messages/bulk         // Bulk message sending
+GET    /api/v1/messages/:id          // Get message status
+GET    /api/v1/messages/:id/events   // Get message events
+```
+
+### 2.2 Channel APIs
+```typescript
+GET    /api/v1/channels               // List available channels
+GET    /api/v1/channels/:id           // Get channel details
+GET    /api/v1/channels/:id/status    // Channel health status
+PATCH  /api/v1/channels/:id/config    // Update channel config
+POST   /api/v1/channels/:id/test      // Test channel
+```
+
+### 2.3 Conversation APIs
+```typescript
+GET    /api/v1/conversations          // List conversations
+GET    /api/v1/conversations/:id      // Get conversation
+POST   /api/v1/conversations/:id/messages  // Send in conversation
+```
+
+### 2.4 Webhook Endpoints
+```typescript
+POST   /webhooks/:channel/:tenant     // Provider webhooks
+GET    /webhooks/:channel/:tenant/verify  // Webhook verification
+```
+
+### 2.5 Health & Metrics
+```typescript
+GET    /health                        // Health check
+GET    /health/live                   // Liveness probe
+GET    /health/ready                  // Readiness probe
+GET    /metrics                       // Prometheus metrics
+```
+
+## 3. Core Components Design
+
+### 3.1 Authentication Service
+```typescript
+interface AuthService {
+  validateJWT(token: string): Promise<JWTPayload>;
+  validateAPIKey(key: string): Promise<Tenant>;
+  verifyWebhookSignature(
+    channel: string,
+    signature: string,
+    body: any
+  ): Promise<boolean>;
+}
+
+interface JWTPayload {
+  tenantId: string;
+  userId: string;
+  permissions: string[];
+  exp: number;
+}
+```
+
+### 3.2 Rate Limiter Service
+```typescript
+interface RateLimiterService {
+  checkLimit(key: string, limit: number): Promise<RateLimitResult>;
+  consumeToken(key: string): Promise<void>;
+  getRemainingTokens(key: string): Promise<number>;
+}
+
+interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  resetAt: Date;
+  retryAfter?: number;
+}
+
+// Rate limit keys structure:
+// - rate:tenant:{tenantId}:total
+// - rate:tenant:{tenantId}:channel:{channel}
+// - rate:tenant:{tenantId}:endpoint:{endpoint}
+```
+
+### 3.3 Kafka Producer Service
+```typescript
+interface KafkaProducerService {
+  publishMessage(topic: string, message: any): Promise<void>;
+  publishBatch(topic: string, messages: any[]): Promise<void>;
+  publishWithRetry(
+    topic: string, 
+    message: any, 
+    retries?: number
+  ): Promise<void>;
+}
+
+// Topics:
+// - message.channel.route.{channel}
+// - message.bulk.route.{channel}
+// - conversation.events
+// - webhook.received.{channel}
+```
+
+### 3.4 Validation Service
+```typescript
+interface ValidationService {
+  validateSendMessage(body: any): SendMessageDTO;
+  validateBulkMessage(body: any): BulkMessageDTO;
+  validateWebhook(channel: string, body: any): WebhookDTO;
+}
+
+// DTOs with strict typing
+interface SendMessageDTO {
+  to: string | string[];
+  channel: ChannelType;
+  content: MessageContent;
+  tenantId?: string;
+  conversationId?: string;
+  metadata?: Record<string, any>;
+}
+```
+
+## 4. Request Processing Flow
+
+### 4.1 REST API Flow
+```
+1. Request arrives at Express route
+2. Global error handler wraps request
+3. Correlation ID middleware adds traceId
+4. Authentication middleware validates JWT/API key
+5. Extract tenant context from token
+6. Rate limiting check (Redis)
+7. Request validation (Joi/Zod)
+8. Business logic in controller
+9. Publish to Kafka
+10. Return response with messageId
+```
+
+### 4.2 Webhook Flow
+```
+1. Webhook POST received
+2. Verify webhook signature (channel-specific)
+3. Parse channel-specific payload
+4. Transform to standard format
+5. Publish to Kafka (webhook.received topic)
+6. Return 200 OK immediately
+```
+
+## 5. Error Handling Strategy
+
+### 5.1 Error Types
+```typescript
+class ValidationError extends Error {
+  statusCode = 400;
+  errors: ValidationErrorDetail[];
+}
+
+class AuthenticationError extends Error {
+  statusCode = 401;
+  code: 'INVALID_TOKEN' | 'EXPIRED_TOKEN' | 'NO_TOKEN';
+}
+
+class RateLimitError extends Error {
+  statusCode = 429;
+  retryAfter: number;
+  resetAt: Date;
+}
+
+class ServiceUnavailableError extends Error {
+  statusCode = 503;
+  service: string;
+  retryAfter?: number;
+}
+```
+
+### 5.2 Error Response Format
+```json
+{
+  "success": false,
+  "error": {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Too many requests",
+    "details": {
+      "retryAfter": 30,
+      "resetAt": "2024-01-01T12:00:00Z"
+    }
+  },
+  "meta": {
+    "requestId": "req_123",
+    "timestamp": "2024-01-01T11:59:30Z"
+  }
+}
+```
+
+## 6. Security Considerations
+
+### 6.1 Security Measures
+- **JWT validation** with RS256 algorithm
+- **API key rotation** support
+- **Webhook signature verification** per channel
+- **Request size limits** (10MB default)
+- **SQL injection prevention** via parameterized queries
+- **XSS protection** headers
+- **CORS configuration** with whitelist
+- **Helmet.js** for security headers
+
+### 6.2 Rate Limiting Strategy
+```
+Hierarchical Rate Limiting:
+1. Global limit: 1000 r/s (total service)
+2. Per-tenant limit: 50 r/s (across all channels)
+3. Per-tenant-channel: 50 r/s
+4. Per-endpoint limit: Custom limits
+5. Bulk endpoint: 10 r/s with larger payloads
+```
+
+## 7. Monitoring & Observability
+
+### 7.1 Metrics
+```typescript
+// Prometheus metrics
+- api_requests_total{method, endpoint, status}
+- api_request_duration_seconds{method, endpoint}
+- rate_limit_rejections_total{tenant, reason}
+- kafka_publish_success_total{topic}
+- kafka_publish_failure_total{topic, error}
+- auth_failures_total{reason}
+```
+
+### 7.2 Logging
+```typescript
+// Structured logging format
+{
+  "timestamp": "2024-01-01T12:00:00Z",
+  "level": "info",
+  "service": "api-gateway",
+  "traceId": "trace_123",
+  "tenantId": "tenant_456",
+  "userId": "user_789",
+  "method": "POST",
+  "path": "/api/v1/messages/send",
+  "statusCode": 200,
+  "duration": 45,
+  "message": "Message sent successfully"
+}
+```
+
+## 8. Configuration Management
+
+### 8.1 Environment Variables
+```bash
+# Service
+NODE_ENV=production
+PORT=3000
+SERVICE_NAME=api-gateway
+
+# Authentication
+JWT_SECRET=xxx
+JWT_PUBLIC_KEY=xxx
+API_KEY_HEADER=X-API-Key
+
+# Redis
+REDIS_URL=redis://localhost:6379
+REDIS_DB=0
+
+# Kafka
+KAFKA_BROKERS=localhost:9092
+KAFKA_CLIENT_ID=api-gateway
+KAFKA_GROUP_ID=api-gateway-group
+
+# Rate Limiting
+DEFAULT_RATE_LIMIT=50
+RATE_LIMIT_WINDOW=1000
+
+# Service Registry
+SERVICE_REGISTRY_URL=http://localhost:3100
+
+# Monitoring
+METRICS_ENABLED=true
+LOG_LEVEL=info
+```
+
+## 9. Deployment Considerations
+
+### 9.1 Container Setup
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
+RUN npm run build
+EXPOSE 3000
+CMD ["node", "dist/index.js"]
+```
+
+### 9.2 Health Checks
+- **Liveness**: Basic health check
+- **Readiness**: Checks Redis, Kafka, Service Registry connections
+
+### 9.3 Scaling Strategy
+- Horizontal scaling with multiple instances
+- Load balancer in front (nginx/ALB)
+- Sticky sessions not required (stateless)
+- Auto-scaling based on CPU/memory/request rate

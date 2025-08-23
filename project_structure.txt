@@ -1,0 +1,15 @@
+api-gateway/
+├── src/
+│   ├── config/           # Configuration management
+│   ├── controllers/      # Request handlers
+│   ├── middlewares/      # Express middlewares
+│   ├── services/         # Core business services
+│   ├── routes/           # Route definitions
+│   ├── validators/       # Request validators
+│   ├── utils/            # Utilities
+│   ├── types/            # TypeScript types
+│   └── index.ts          # Entry point
+├── .env.example
+├── Dockerfile
+├── package.json
+└── tsconfig.json

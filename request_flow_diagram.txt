@@ -1,0 +1,299 @@
+# API Gateway - Request Flow Diagrams
+
+## 1. Outbound Message Flow (REST API)
+
+```
+┌─────────┐      ┌──────────────────────────────────────────────────────┐
+│ Client  │      │                   API GATEWAY                         │
+└────┬────┘      │                                                       │
+     │           │  ┌─────────────────────────────────────────────────┐  │
+     │ POST      │  │           1. Express Route Handler              │  │
+     │ /messages │  │               /api/v1/messages/send             │  │
+     │ +JWT      │  └──────────────────────┬──────────────────────────┘  │
+     └──────────────────────────────────────▼                            │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │        2. Global Middleware Pipeline            │  │
+                 │  │  ┌──────────┐ ┌──────────┐ ┌──────────────┐   │  │
+                 │  │  │ CorrelID │→│  Logger  │→│ Error Handler│   │  │
+                 │  │  └──────────┘ └──────────┘ └──────────────┘   │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │         3. Authentication Middleware            │  │
+                 │  │                                                 │  │
+                 │  │  if (Authorization header exists):              │  │
+                 │  │    ├─→ Validate JWT token                       │  │
+                 │  │    ├─→ Extract tenantId, userId, permissions   │  │
+                 │  │    └─→ Attach to req.context                    │  │
+                 │  │  else:                                          │  │
+                 │  │    └─→ Return 401 Unauthorized                  │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │           4. Rate Limiting Check                │  │
+                 │  │                                                 │  │
+                 │  │  Redis Key: rate:tenant:{id}:channel:{type}     │  │
+                 │  │  ├─→ Check tokens available (Token Bucket)     │  │
+                 │  │  ├─→ If tokens > 0: Consume token, proceed     │  │
+                 │  │  └─→ If tokens = 0: Return 429 Too Many Req    │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │          5. Request Validation                  │  │
+                 │  │                                                 │  │
+                 │  │  Validate against schema:                       │  │
+                 │  │  ├─→ Required fields (to, channel, content)    │  │
+                 │  │  ├─→ Format validation (phone, email)          │  │
+                 │  │  ├─→ Channel-specific rules                    │  │
+                 │  │  └─→ If invalid: Return 400 Bad Request        │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │         6. Message Controller Logic             │  │
+                 │  │                                                 │  │
+                 │  │  ├─→ Generate messageId (UUID)                  │  │
+                 │  │  ├─→ Add metadata (timestamp, tenant, user)     │  │
+                 │  │  ├─→ Determine Kafka topic by channel           │  │
+                 │  │  └─→ Create event payload                       │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │         7. Publish to Kafka                     │  │
+                 │  │                                                 │  │
+                 │  │  Topic: message.channel.route.{channel}         │  │
+                 │  │  Partition Key: conversationId || messageId     │  │
+                 │  │  ├─→ Async publish with retry (3 attempts)      │  │
+                 │  │  ├─→ If success: Log and proceed               │  │
+                 │  │  └─→ If failure: Send to DLQ, return 503       │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │           8. Response to Client                 │  │
+                 │  │                                                 │  │
+                 │  │  Success Response (202 Accepted):               │  │
+                 │  │  {                                              │  │
+                 │  │    "success": true,                            │  │
+                 │  │    "messageId": "msg_uuid",                     │  │
+                 │  │    "status": "queued",                         │  │
+                 │  │    "meta": { "requestId": "...", ... }         │  │
+                 │  │  }                                              │  │
+                 │  └─────────────────────────────────────────────────┘  │
+                 └────────────────────────────────────────────────────────┘
+
+## 2. Webhook Inbound Flow
+
+```
+┌──────────┐     ┌──────────────────────────────────────────────────────┐
+│ Provider │     │                   API GATEWAY                         │
+│ (Twilio) │     │                                                       │
+└────┬─────┘     │  ┌─────────────────────────────────────────────────┐  │
+     │ POST      │  │          1. Webhook Route Handler               │  │
+     │ /webhooks │  │         /webhooks/:channel/:tenant              │  │
+     │ /sms/t123 │  └──────────────────────┬──────────────────────────┘  │
+     └───────────────────────────────────────▼                           │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │       2. Webhook Signature Verification         │  │
+                 │  │                                                 │  │
+                 │  │  Channel-specific verification:                 │  │
+                 │  │  ├─→ Twilio: X-Twilio-Signature header         │  │
+                 │  │  ├─→ SendGrid: X-Twilio-Email-Event-Webhook    │  │
+                 │  │  ├─→ WhatsApp: X-Hub-Signature-256             │  │
+                 │  │  └─→ If invalid: Return 401 Unauthorized       │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │         3. Parse Provider Payload               │  │
+                 │  │                                                 │  │
+                 │  │  Extract based on channel:                      │  │
+                 │  │  ├─→ Message ID                                │  │
+                 │  │  ├─→ Status (delivered/failed/received)        │  │
+                 │  │  ├─→ From number/email                         │  │
+                 │  │  ├─→ Content (for inbound)                     │  │
+                 │  │  └─→ Timestamp & metadata                      │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │       4. Transform to Standard Format           │  │
+                 │  │                                                 │  │
+                 │  │  Create unified webhook event:                  │  │
+                 │  │  {                                              │  │
+                 │  │    type: "inbound" | "status_update",          │  │
+                 │  │    channel: "sms",                             │  │
+                 │  │    tenantId: "t123",                           │  │
+                 │  │    messageId: "...",                           │  │
+                 │  │    data: { ... }                               │  │
+                 │  │  }                                              │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │          5. Publish to Kafka                    │  │
+                 │  │                                                 │  │
+                 │  │  Topic: webhook.received.{channel}              │  │
+                 │  │  ├─→ Fire and forget (async)                   │  │
+                 │  │  └─→ No retry for webhooks                     │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │      6. Immediate Response to Provider          │  │
+                 │  │                                                 │  │
+                 │  │  Return 200 OK immediately                      │  │
+                 │  │  (Provider expects quick response)              │  │
+                 │  └─────────────────────────────────────────────────┘  │
+                 └────────────────────────────────────────────────────────┘
+
+## 3. Bulk Message Flow
+
+```
+┌─────────┐      ┌──────────────────────────────────────────────────────┐
+│ Client  │      │                   API GATEWAY                         │
+└────┬────┘      │                                                       │
+     │           │  Steps 1-4: Same as regular message flow              │
+     │ POST      │  (Auth → Rate Limit → Validation)                     │
+     │ /bulk     │                                                       │
+     └────────────────────────────────┬────────────────────────────────  │
+                 │                     ▼                                  │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │         5. Bulk Request Validation              │  │
+                 │  │                                                 │  │
+                 │  │  Additional validations:                        │  │
+                 │  │  ├─→ Recipient count (max 10,000)              │  │
+                 │  │  ├─→ File format (CSV/JSON)                     │  │
+                 │  │  ├─→ Batch size limits                         │  │
+                 │  │  └─→ Schedule validation                        │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │          6. Create Batch Job                    │  │
+                 │  │                                                 │  │
+                 │  │  ├─→ Generate batchId                          │  │
+                 │  │  ├─→ Store file reference (if applicable)       │  │
+                 │  │  ├─→ Calculate estimated completion             │  │
+                 │  │  └─→ Set processing parameters                  │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │         7. Publish Bulk Job Event               │  │
+                 │  │                                                 │  │
+                 │  │  Topic: message.bulk.route.{channel}            │  │
+                 │  │  Payload: {                                     │  │
+                 │  │    batchId: "...",                             │  │
+                 │  │    recipientSource: { ... },                   │  │
+                 │  │    content: { ... },                           │  │
+                 │  │    options: { ... }                            │  │
+                 │  │  }                                              │  │
+                 │  └──────────────────────┬──────────────────────────┘  │
+                 │                         ▼                              │
+                 │  ┌─────────────────────────────────────────────────┐  │
+                 │  │          8. Return Batch Job ID                 │  │
+                 │  │                                                 │  │
+                 │  │  Response (202 Accepted):                       │  │
+                 │  │  {                                              │  │
+                 │  │    "batchId": "batch_uuid",                    │  │
+                 │  │    "status": "processing",                     │  │
+                 │  │    "estimatedCompletion": "...",               │  │
+                 │  │    "trackingUrl": "/api/v1/batches/{id}"       │  │
+                 │  │  }                                              │  │
+                 │  └─────────────────────────────────────────────────┘  │
+                 └────────────────────────────────────────────────────────┘
+
+## 4. Rate Limiting Flow Detail
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                     Rate Limiter Service Flow                        │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Request with tenantId="t123", channel="sms"                        │
+│                           │                                          │
+│                           ▼                                          │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │         1. Build Rate Limit Keys                               │ │
+│  │                                                                │ │
+│  │  Keys to check:                                                │ │
+│  │  - rate:tenant:t123:total        (50 r/s across all)          │ │
+│  │  - rate:tenant:t123:channel:sms  (50 r/s for SMS)             │ │
+│  │  - rate:tenant:t123:minute       (3000 r/m safety)            │ │
+│  └──────────────────────┬─────────────────────────────────────────┘ │
+│                         ▼                                            │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │         2. Redis Token Bucket Check                            │ │
+│  │                                                                │ │
+│  │  For each key:                                                 │ │
+│  │  ├─→ GET current tokens                                        │ │
+│  │  ├─→ Calculate refill based on time passed                    │ │
+│  │  ├─→ If tokens > 0: DECR and proceed                          │ │
+│  │  └─→ If tokens = 0: Calculate resetAt time                    │ │
+│  └──────────────────────┬─────────────────────────────────────────┘ │
+│                         ▼                                            │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │         3. Decision & Response Headers                         │ │
+│  │                                                                │ │
+│  │  If ALLOWED:                                                   │ │
+│  │  - Headers: X-RateLimit-Remaining: 45                         │ │
+│  │            X-RateLimit-Reset: 1704110400                      │ │
+│  │                                                                │ │
+│  │  If DENIED:                                                    │ │
+│  │  - Status: 429 Too Many Requests                              │ │
+│  │  - Headers: Retry-After: 30                                   │ │
+│  │            X-RateLimit-Reset: 1704110400                      │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+
+## 5. Error Handling Flow
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                      Global Error Handler                            │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   try {                                                              │
+│     ... process request ...                                          │
+│   } catch (error) {                                                  │
+│       │                                                              │
+│       ▼                                                              │
+│   ┌───────────────────────────────────────────────┐                 │
+│   │         Classify Error Type                  │                 │
+│   │                                               │                 │
+│   │  - ValidationError    → 400                  │                 │
+│   │  - AuthError         → 401                  │                 │
+│   │  - ForbiddenError    → 403                  │                 │
+│   │  - NotFoundError     → 404                  │                 │
+│   │  - RateLimitError    → 429                  │                 │
+│   │  - KafkaError        → 503                  │                 │
+│   │  - UnknownError      → 500                  │                 │
+│   └─────────────────────┬─────────────────────────┘                 │
+│                         ▼                                            │
+│   ┌───────────────────────────────────────────────┐                 │
+│   │         Log Error with Context               │                 │
+│   │                                               │                 │
+│   │  logger.error({                              │                 │
+│   │    error: error.message,                     │                 │
+│   │    stack: error.stack,                       │                 │
+│   │    traceId: req.traceId,                     │                 │
+│   │    tenantId: req.context?.tenantId,         │                 │
+│   │    path: req.path,                           │                 │
+│   │    method: req.method                        │                 │
+│   │  })                                           │                 │
+│   └─────────────────────┬─────────────────────────┘                 │
+│                         ▼                                            │
+│   ┌───────────────────────────────────────────────┐                 │
+│   │      Send Standardized Error Response        │                 │
+│   │                                               │                 │
+│   │  res.status(statusCode).json({               │                 │
+│   │    success: false,                           │                 │
+│   │    error: {                                  │                 │
+│   │      code: error.code,                       │                 │
+│   │      message: error.message,                 │                 │
+│   │      details: error.details                  │                 │
+│   │    },                                         │                 │
+│   │    meta: {                                   │                 │
+│   │      requestId: req.traceId,                 │                 │
+│   │      timestamp: new Date()                   │                 │
+│   │    }                                          │                 │
+│   │  })                                           │                 │
+│   └───────────────────────────────────────────────┘                 │
+│   }                                                                  │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
