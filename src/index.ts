@@ -8,6 +8,7 @@ import { config } from './config';
 import { redisService } from './services/RedisService';
 import { RateLimiterService } from './services/RateLimiterService';
 import { KafkaProducerService } from './services/KafkaProducerService';
+import { QueryServiceClient } from './services/QueryServiceClient';
 import { AuthService } from './services/AuthService';
 
 // Global service instances
@@ -58,6 +59,10 @@ async function startServer(): Promise<void> {
       }
     });
 
+    // Create Query Service client
+    const queryServiceClient = new QueryServiceClient(config.queryService);
+    logger.info('Query Service client initialized', { url: config.queryService.url });
+
     // 6. Initialize Service Registry client (optional - for service discovery)
     logger.info('Service registry initialization skipped (optional)');
 
@@ -68,6 +73,7 @@ async function startServer(): Promise<void> {
       kafkaProducer: kafkaProducerService,
       rateLimiter: rateLimiterService,
       authService: authService,
+      queryService: queryServiceClient,
       config
     });
 

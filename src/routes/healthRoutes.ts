@@ -10,7 +10,7 @@ export function createHealthRoutes(dependencies: HealthDependencies): Router {
   const router = Router();
   
   // 1. Create controller instance
-  const healthController = createHealthController(dependencies.redisClient, dependencies.kafkaProducer);
+  const healthController = createHealthController(dependencies);
   
   // Note: Health endpoints typically don't require authentication
   // They need to be accessible for monitoring systems

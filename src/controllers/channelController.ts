@@ -5,8 +5,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
 import { KafkaProducerService } from '../services/KafkaProducerService';
 import { NotFoundError, ValidationError } from '../types/errorHandlerMiddleware';
+import { IQueryServiceClient } from '../types/queryService';
 
-export function createChannelController(kafkaProducer: KafkaProducerService) {
+export function createChannelController(kafkaProducer: KafkaProducerService, queryService: IQueryServiceClient) {
   
   async function listChannels(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {

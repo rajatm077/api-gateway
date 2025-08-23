@@ -15,7 +15,7 @@ export function createMessageRoutes(dependencies: RouteDependencies): Router {
   const router = Router();
   
   // 1. Create controller with dependencies
-  const messageController = createMessageController(dependencies.kafkaProducer);
+  const messageController = createMessageController(dependencies.kafkaProducer, dependencies.queryService);
   
   // 2. Create middleware instances
   const authMiddleware = createAuthMiddleware(dependencies.authService);

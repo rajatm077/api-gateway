@@ -16,7 +16,7 @@ export function createWebhookRoutes(dependencies: RouteDependencies): Router {
   const router = Router();
   
   // 1. Create controller and middleware instances
-  const webhookController = createWebhookController(dependencies.authService, dependencies.kafkaProducer);
+  const webhookController = createWebhookController(dependencies.authService, dependencies.kafkaProducer, dependencies.queryService);
   const webhookRateLimitMiddleware = createWebhookRateLimitMiddleware(dependencies.rateLimiter);
   
   // 2. Define validation schemas

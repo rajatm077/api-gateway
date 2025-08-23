@@ -4,6 +4,8 @@ import { Request, Response, NextFunction } from 'express';
 import Redis from 'ioredis';
 import { logger } from '../utils/logger';
 import { KafkaProducerService } from '../services/KafkaProducerService';
+import { IQueryServiceClient } from '../types/queryService';
+import { HealthDependencies } from '../types/routes';
 import { 
   HealthCheckResponse, 
   LivenessProbeResponse, 
@@ -12,7 +14,8 @@ import {
   DeepHealthCheckResponse
 } from '../types/healthController';
 
-export function createHealthController(redis: Redis, kafkaProducer: KafkaProducerService) {
+export function createHealthController(dependencies: HealthDependencies) {
+  const { redisClient: redis, kafkaProducer, queryService } = dependencies;
   
   async function healthCheck(req: Request, res: Response): Promise<void> {
     // Basic health check - just returns OK if service is running
@@ -72,6 +75,7 @@ export function createHealthController(redis: Redis, kafkaProducer: KafkaProduce
       const checks = {
         redis: false,
         kafka: false,
+        queryService: false,
         serviceRegistry: true // Assume true since it's optional
       };
       
@@ -107,14 +111,29 @@ export function createHealthController(redis: Redis, kafkaProducer: KafkaProduce
         });
         checks.kafka = false;
       }
+
+      // 3. Check Query Service
+      try {
+        const queryServiceHealth = await queryService.healthCheck();
+        checks.queryService = queryServiceHealth.status === 'healthy';
+        logger.debug('Query Service readiness check', { 
+          status: checks.queryService,
+          response: queryServiceHealth 
+        });
+      } catch (error) {
+        logger.warn('Query Service readiness check failed', { 
+          error: (error as Error).message 
+        });
+        checks.queryService = false;
+      }
       
-      // 3. Service Registry check (optional)
+      // 4. Service Registry check (optional)
       // For now, assume it's healthy since it's not critical
       // In production, you might ping an actual service registry
       
-      // 4. Determine overall readiness
-      // Redis and Kafka are critical dependencies
-      const isReady = checks.redis && checks.kafka;
+      // 5. Determine overall readiness
+      // Redis, Kafka, and Query Service are critical dependencies
+      const isReady = checks.redis && checks.kafka && checks.queryService;
       const responseTime = Date.now() - startTime;
       
       // 5. Return appropriate status
@@ -263,6 +282,24 @@ api_gateway_info{version="${process.env.VERSION || '1.0.0'}",node_version="${pro
         };
       } catch (error) {
         results.dependencies.kafka = {
+          status: 'unhealthy',
+          error: (error as Error).message
+        };
+      }
+
+      // Check Query Service with detailed info
+      try {
+        const queryServiceStart = Date.now();
+        const queryServiceHealth = await queryService.healthCheck();
+        
+        results.dependencies.queryService = {
+          status: queryServiceHealth.status === 'healthy' ? 'healthy' : 'unhealthy',
+          responseTime: Date.now() - queryServiceStart,
+          version: queryServiceHealth.version,
+          uptime: queryServiceHealth.uptime
+        };
+      } catch (error) {
+        results.dependencies.queryService = {
           status: 'unhealthy',
           error: (error as Error).message
         };

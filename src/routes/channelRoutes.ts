@@ -15,7 +15,7 @@ export function createChannelRoutes(dependencies: RouteDependencies): Router {
   const router = Router();
   
   // 1. Create controller and middleware instances
-  const channelController = createChannelController(dependencies.kafkaProducer);
+  const channelController = createChannelController(dependencies.kafkaProducer, dependencies.queryService);
   const authMiddleware = createAuthMiddleware(dependencies.authService);
   const rateLimitMiddleware = createRateLimitMiddleware(dependencies.rateLimiter);
   

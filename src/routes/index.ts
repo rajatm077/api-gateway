@@ -23,14 +23,16 @@ export function setupRoutes(app: Express, dependencies: AppDependencies): void {
   const messageRoutes = createMessageRoutes({
     rateLimiter: dependencies.rateLimiter,
     kafkaProducer: dependencies.kafkaProducer,
-    authService: dependencies.authService
+    authService: dependencies.authService,
+    queryService: dependencies.queryService
   });
   
   // Channel routes
   const channelRoutes = createChannelRoutes({
     rateLimiter: dependencies.rateLimiter,
     kafkaProducer: dependencies.kafkaProducer,
-    authService: dependencies.authService
+    authService: dependencies.authService,
+    queryService: dependencies.queryService
   });
   
   // 3. Mount routes under /api/v1
@@ -44,7 +46,8 @@ export function setupRoutes(app: Express, dependencies: AppDependencies): void {
   const webhookRoutes = createWebhookRoutes({
     kafkaProducer: dependencies.kafkaProducer,
     authService: dependencies.authService,
-    rateLimiter: dependencies.rateLimiter
+    rateLimiter: dependencies.rateLimiter,
+    queryService: dependencies.queryService
   });
   app.use('/webhooks', webhookRoutes);
   
@@ -53,13 +56,20 @@ export function setupRoutes(app: Express, dependencies: AppDependencies): void {
     redisClient: dependencies.redisClient,
     kafkaProducer: dependencies.kafkaProducer,
     authService: dependencies.authService,
-    serviceRegistryClient: dependencies.serviceRegistryClient
+    serviceRegistryClient: dependencies.serviceRegistryClient,
+    queryService: dependencies.queryService
   });
   app.use('/health', healthRoutes);
 
   // 8. Direct metrics endpoint (Prometheus standard)
   // Create health controller for metrics endpoint
-  const healthController = createHealthController(dependencies.redisClient, dependencies.kafkaProducer);
+  const healthController = createHealthController({
+    redisClient: dependencies.redisClient,
+    kafkaProducer: dependencies.kafkaProducer,
+    queryService: dependencies.queryService,
+    serviceRegistryClient: dependencies.serviceRegistryClient,
+    authService: dependencies.authService
+  });
   app.get('/metrics', healthController.metrics);
   
   // 9. Root endpoint

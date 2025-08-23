@@ -7,8 +7,9 @@ import { AuthService } from '../services/AuthService';
 import { KafkaProducerService } from '../services/KafkaProducerService';
 import { ValidationError } from '../types/errorHandlerMiddleware';
 import { WebhookEvent } from '../types/webhookController';
+import { IQueryServiceClient } from '../types/queryService';
 
-export function createWebhookController(authService: AuthService, kafkaProducer: KafkaProducerService) {
+export function createWebhookController(authService: AuthService, kafkaProducer: KafkaProducerService, queryService: IQueryServiceClient) {
   
   async function handleChannelWebhook(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {

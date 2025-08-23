@@ -15,8 +15,9 @@ import {
   ConversationFilters
 } from '../types/messageController';
 import { MessageRouteEvent, BulkMessageRouteEvent } from '../types/kafkaEvents';
+import { IQueryServiceClient, MessageListFilters } from '../types/queryService';
 
-export function createMessageController(kafkaProducer: KafkaProducerService) {
+export function createMessageController(kafkaProducer: KafkaProducerService, queryService: IQueryServiceClient) {
   
   async function sendMessage(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -193,36 +194,31 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(messageId)) {
         throw new ValidationError('Invalid message ID format');
       }
+
+      // 2. Query message status from Query Service
+      const messageStatus = await queryService.getMessage(messageId, tenantId);
       
-      // 3. Query message status (mock implementation)
-      // In production, this would query the Message Orchestrator's database
-      const mockStatus = {
-        messageId,
-        status: 'delivered',
-        channel: 'sms',
-        createdAt: new Date(Date.now() - 300000).toISOString(), // 5 minutes ago
-        updatedAt: new Date(Date.now() - 60000).toISOString(),  // 1 minute ago
-        deliveredAt: new Date(Date.now() - 60000).toISOString(),
-        tenantId
-      };
-      
-      // 4. Return message status
+      if (!messageStatus) {
+        throw new NotFoundError(`Message ${messageId} not found`);
+      }
+
+      // 3. Return message status
       res.json({
         success: true,
-        data: mockStatus,
+        data: messageStatus,
         meta: {
           requestId: req.correlationId,
           timestamp: new Date().toISOString()
         }
       });
-      
+
       logger.debug('Message status retrieved', {
         messageId,
         tenantId,
-        status: mockStatus.status,
+        status: messageStatus.status,
         correlationId: req.correlationId
       });
-      
+
     } catch (error) {
       logger.error('Failed to get message status', {
         error: (error as Error).message,
@@ -243,48 +239,31 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(messageId)) {
         throw new ValidationError('Invalid message ID format');
       }
-      
-      // 2. Query event history (mock implementation)
-      const now = Date.now();
-      const mockEvents = [
-        {
-          type: 'queued',
-          timestamp: new Date(now - 300000).toISOString(),
-          details: { gateway: 'api-gateway' }
-        },
-        {
-          type: 'sent',
-          timestamp: new Date(now - 240000).toISOString(),
-          details: { provider: 'twilio', messageId: 'SM123456789' }
-        },
-        {
-          type: 'delivered',
-          timestamp: new Date(now - 60000).toISOString(),
-          details: { provider: 'twilio', deliveryCode: 'delivered' }
-        }
-      ];
-      
+
+      // 2. Query event history from Query Service
+      const events = await queryService.getMessageEvents(messageId, tenantId);
+
       // 3. Return chronological event list
       res.json({
         success: true,
         data: {
           messageId,
-          events: mockEvents,
-          totalEvents: mockEvents.length
+          events,
+          totalEvents: events.length
         },
         meta: {
           requestId: req.correlationId,
           timestamp: new Date().toISOString()
         }
       });
-      
+
       logger.debug('Message events retrieved', {
         messageId,
         tenantId,
-        eventCount: mockEvents.length,
+        eventCount: events.length,
         correlationId: req.correlationId
       });
-      
+
     } catch (error) {
       logger.error('Failed to get message events', {
         error: (error as Error).message,
@@ -306,8 +285,7 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
       // Extract pagination and filtering parameters
       const page = parseInt(req.query.page as string) || 1;
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
-      const offset = (page - 1) * limit;
-      const channel = req.query.channel as string;
+      const channel = req.query.channel as 'sms' | 'email' | 'whatsapp';
       const direction = req.query.direction as 'inbound' | 'outbound';
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;
@@ -322,114 +300,68 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
         correlationId
       });
       
-      // 2. Validate conversation exists and belongs to tenant
-      // In a real implementation, this would check the database
+      // 2. Validate conversation ID format
       if (!conversationId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
         throw new ValidationError('Invalid conversation ID format');
       }
+
+      // 3. Get conversation details from Query Service
+      const conversation = await queryService.getConversation(conversationId, tenantId);
       
-      // 3. Mock conversation data (in production, this would come from database/cache)
-      const mockConversation: ConversationInfo = {
-        id: conversationId,
-        channel: (channel as any) || 'sms',
-        participant: '+1234567890',
-        createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-        lastMessageAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-        status: 'active',
-        messageCount: 25,
-        metadata: {
-          tags: ['support', 'billing'],
-          assignedAgent: 'agent_123'
-        }
-      };
-      
-      // 4. Generate mock message history with realistic data
-      const mockMessages: ConversationMessage[] = [];
-      const totalMessages = 25;
-      
-      for (let i = 0; i < Math.min(limit, totalMessages - offset); i++) {
-        const messageIndex = totalMessages - offset - i - 1;
-        const isInbound = messageIndex % 3 === 0; // Every 3rd message is inbound
-        const timestamp = new Date(Date.now() - (messageIndex + 1) * 15 * 60 * 1000); // 15 min intervals
-        
-        // Apply direction filter if specified
-        if (direction && ((direction === 'inbound' && !isInbound) || (direction === 'outbound' && isInbound))) {
-          continue;
-        }
-        
-        const message: ConversationMessage = {
-          id: `msg_${uuidv4()}`,
-          conversationId,
-          direction: isInbound ? 'inbound' : 'outbound',
-          channel: mockConversation.channel,
-          from: isInbound ? mockConversation.participant : 'system',
-          to: isInbound ? 'system' : mockConversation.participant,
-          content: {
-            text: isInbound 
-              ? `Customer message ${messageIndex + 1}: I need help with my order`
-              : `Thank you for contacting us. Let me help you with that. (Response ${messageIndex + 1})`,
-            type: 'text'
-          },
-          status: isInbound ? 'received' : 'delivered',
-          timestamp: timestamp.toISOString(),
-          metadata: {
-            messageIndex: messageIndex + 1,
-            source: isInbound ? 'webhook' : 'api'
-          }
-        };
-        
-        mockMessages.push(message);
-      }
-      
-      // 5. Apply date filtering if specified
-      let filteredMessages = mockMessages;
-      if (startDate || endDate) {
-        filteredMessages = mockMessages.filter(msg => {
-          const msgDate = new Date(msg.timestamp);
-          if (startDate && msgDate < new Date(startDate)) return false;
-          if (endDate && msgDate > new Date(endDate)) return false;
-          return true;
-        });
-      }
-      
-      // 6. Calculate pagination metadata
-      const hasMore = offset + limit < totalMessages;
-      const totalPages = Math.ceil(totalMessages / limit);
-      
-      const pagination: ConversationPagination = {
-        page,
-        limit,
-        offset,
-        total: totalMessages,
-        totalPages,
-        hasMore,
-        hasPrevious: page > 1
-      };
-      
-      const filters: ConversationFilters = {
-        channel: channel as any,
+      // 4. Build filters for message query
+      const messageFilters: MessageListFilters = {
         direction,
+        channel,
         startDate,
-        endDate
+        endDate,
+        page,
+        limit
       };
-      
-      // 7. Return conversation history response
+
+      // 5. Get conversation messages from Query Service
+      const messagesResponse = await queryService.getConversationMessages(conversationId, tenantId, messageFilters);
+
+      // 6. Transform the Query Service response to match our API format
       const response: ConversationHistoryResponse = {
         success: true,
         data: {
           conversation: {
-            id: mockConversation.id,
-            channel: mockConversation.channel,
-            participant: mockConversation.participant,
-            createdAt: mockConversation.createdAt,
-            lastMessageAt: mockConversation.lastMessageAt,
-            status: mockConversation.status,
-            messageCount: mockConversation.messageCount,
-            metadata: mockConversation.metadata
+            id: conversation.id,
+            channel: conversation.channel,
+            participant: conversation.participant,
+            createdAt: conversation.createdAt,
+            lastMessageAt: conversation.lastMessageAt,
+            status: conversation.status,
+            messageCount: conversation.messageCount,
+            metadata: conversation.metadata
           },
-          messages: filteredMessages,
-          pagination,
-          filters
+          messages: messagesResponse.messages.map(msg => ({
+            id: msg.id,
+            conversationId: msg.conversationId,
+            direction: msg.direction,
+            channel: msg.channel,
+            from: msg.from,
+            to: msg.to,
+            content: msg.content,
+            status: msg.status,
+            timestamp: msg.timestamp,
+            metadata: msg.metadata
+          })),
+          pagination: {
+            page: messagesResponse.pagination.page,
+            limit: messagesResponse.pagination.limit,
+            offset: (messagesResponse.pagination.page - 1) * messagesResponse.pagination.limit,
+            total: messagesResponse.pagination.total,
+            totalPages: messagesResponse.pagination.totalPages,
+            hasMore: messagesResponse.pagination.hasMore,
+            hasPrevious: messagesResponse.pagination.page > 1
+          },
+          filters: {
+            channel,
+            direction,
+            startDate,
+            endDate
+          }
         },
         meta: {
           requestId: correlationId,
@@ -443,12 +375,10 @@ export function createMessageController(kafkaProducer: KafkaProducerService) {
       logger.debug('Conversation history retrieved', {
         conversationId,
         tenantId,
-        messageCount: filteredMessages.length,
-        totalMessages,
-        page,
+        messageCount: messagesResponse.messages.length,
         correlationId
       });
-      
+
     } catch (error) {
       logger.error('Failed to get conversation history', {
         error: (error as Error).message,

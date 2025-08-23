@@ -1,0 +1,166 @@
+I have observed that for reading any data, we have not done anything. That's a major miss.
+
+You're absolutely right! This is a MAJOR architectural gap in our design. We've built the entire write path but completely neglected the read path. Let me address this comprehensively:
+
+Recommended Architecture: Hybrid Approach
+┌──────────────────────────────────────────────────────────────────┐
+│                     COMPLETE DATA FLOW                           │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  WRITES (Existing):                                             │
+│  Client → API Gateway → Kafka → Services → MongoDB              │
+│                                                                  │
+│  READS (NEW):                                                   │
+│  Client → API Gateway → Query Service → MongoDB           │
+│                                                                
+
+Use Option 3 -  Query Service because:
+Dedicated Query Service (CQRS)
+┌─────────────┐  HTTP   ┌──────────────┐      ┌─────────┐
+│ API Gateway │────────▶│Query Service │─────▶│ MongoDB │
+└─────────────┘         └──────────────┘      │ (Read)  │
+                                               └─────────┘
+
+Keeps read and write paths separate
+Can optimize database for reads (indexes, caching)
+Can scale reads independently
+Maintains event-driven architecture for writes
+
+Bare Minimum Implementation for Query Service Integration
+1. Config Update
+File: src/config/index.ts
+Add to existing config:
+typescriptqueryService: {
+  url: process.env.QUERY_SERVICE_URL || 'http://localhost:3200',
+  timeout: 5000
+}
+2. Query Service Client (Minimal)
+File: src/services/QueryServiceClient.ts (NEW)
+typescriptclass QueryServiceClient {
+  private baseUrl: string;
+  private timeout: number;
+  
+  constructor(config: QueryServiceConfig)
+  // Store config, create axios instance with timeout
+  
+  async getConversation(conversationId: string, tenantId: string): Promise<any>
+  // 1. Make GET request to `${baseUrl}/conversations/${conversationId}`
+  // 2. Set header 'x-tenant-id': tenantId
+  // 3. Return response.data
+  // 4. If 404, throw NotFoundError
+  // 5. If timeout/500, throw ServiceUnavailableError
+  
+  async getMessage(messageId: string, tenantId: string): Promise<any>
+  // 1. Make GET request to `${baseUrl}/messages/${messageId}`
+  // 2. Set header 'x-tenant-id': tenantId
+  // 3. Return response.data
+  // 4. Handle errors same as getConversation
+}
+3. Update Message Controller
+File: src/controllers/messageController.ts
+Update existing method:
+typescriptexport async function getMessageStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+  // 1. Extract messageId from req.params.messageId
+  // 2. Get tenantId from req.context.tenantId
+  // 3. Get queryServiceClient from req.app.locals.queryService
+  // 4. Call queryServiceClient.getMessage(messageId, tenantId)
+  // 5. Return response:
+  //    res.json({
+  //      success: true,
+  //      data: {
+  //        messageId: result.messageId,
+  //        status: result.status,
+  //        channel: result.channel,
+  //        createdAt: result.timestamp
+  //      }
+  //    })
+  // 6. Catch errors and pass to next(error)
+}
+4. New Conversation Controller (Minimal)
+File: src/controllers/conversationController.ts (NEW)
+typescriptexport async function getConversation(req: Request, res: Response, next: NextFunction): Promise<void> {
+  // 1. Extract conversationId from req.params.conversationId
+  // 2. Get tenantId from req.context.tenantId
+  // 3. Get queryServiceClient from req.app.locals.queryService
+  // 4. Call queryServiceClient.getConversation(conversationId, tenantId)
+  // 5. Return formatted response with success: true
+  // 6. Handle errors (404 -> "Conversation not found")
+}
+
+
+5. Minimal Routes
+File: src/routes/conversationRoutes.ts (NEW)
+typescriptexport function createConversationRoutes(dependencies: RouteDependencies): Router {
+  const router = Router();
+  
+  // GET /api/v1/conversations
+  router.get(
+    '/',
+    authMiddleware,
+    conversationController.listConversations
+  );
+  
+  // GET /api/v1/conversations/:conversationId
+  router.get(
+    '/:conversationId',
+    authMiddleware,
+    conversationController.getConversation
+  );
+  
+  return router;
+}
+6. Update Main App Setup
+File: src/app.ts
+Add to dependencies:
+typescript// In createApp function, add queryServiceClient to locals
+app.locals.queryService = new QueryServiceClient(config.queryService);
+File: src/routes/index.ts
+Add conversation routes:
+typescript// Add after existing routes
+const conversationRoutes = createConversationRoutes(dependencies);
+v1Router.use('/conversations', conversationRoutes);
+7. Minimal Validators
+File: src/validators/conversationValidators.ts (NEW)
+typescriptexport const getConversationSchema = Joi.object({
+  conversationId: Joi.string().required()
+});
+
+export const listConversationsSchema = Joi.object({
+  limit: Joi.number().min(1).max(100).default(20),
+  offset: Joi.number().min(0).default(0)
+});
+8. Update Health Check
+File: src/controllers/healthController.ts
+Update readinessProbe:
+typescript// Add Query Service check
+try {
+  await axios.get(`${config.queryService.url}/health`, { timeout: 2000 });
+  checks.queryService = true;
+} catch {
+  checks.queryService = false;
+}
+
+// Include in ready determination
+const isReady = checks.redis && checks.kafka && checks.queryService;
+Summary of Bare Minimum Changes
+New Files (3):
+
+QueryServiceClient.ts - Simple HTTP client
+conversationController.ts - Two methods only
+conversationValidators.ts - Basic validation
+
+Updated Files (5):
+
+config/index.ts - Add Query Service URL
+messageController.ts - Fix getMessageStatus to actually work
+app.ts - Initialize Query Service client
+routes/index.ts - Mount conversation routes
+healthController.ts - Check Query Service health
+
+Endpoints That Now Work:
+
+GET /api/v1/conversations - List conversations
+GET /api/v1/conversations/:id - Get single conversation
+GET /api/v1/messages/:id - Get message status (previously broken)
+
+This is the absolute minimum to make the read path functional. No caching, no search, no complex pagination - just basic CRUD reads through the Query Service.

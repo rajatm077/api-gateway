@@ -38,6 +38,13 @@ interface AppConfig {
     };
   };
   
+  // Query Service config
+  queryService: {
+    url: string;
+    timeout: number;
+    retries: number;
+  };
+  
   // Rate limiting config
   rateLimit: {
     defaultLimit: number;  // requests per second
@@ -87,6 +94,11 @@ const configSchema = Joi.object({
     then: Joi.string().required(),
     otherwise: Joi.string().optional()
   }),
+  
+  // Query Service Configuration
+  QUERY_SERVICE_URL: Joi.string().uri().default('http://localhost:3200'),
+  QUERY_SERVICE_TIMEOUT: Joi.number().positive().default(5000),
+  QUERY_SERVICE_RETRIES: Joi.number().integer().min(0).default(3),
   
   // Rate Limiting Configuration
   RATE_LIMIT_DEFAULT: Joi.number().positive().default(50),
@@ -148,6 +160,12 @@ function loadConfig(): AppConfig {
       })
     },
     
+    queryService: {
+      url: env.QUERY_SERVICE_URL,
+      timeout: env.QUERY_SERVICE_TIMEOUT,
+      retries: env.QUERY_SERVICE_RETRIES
+    },
+    
     rateLimit: {
       defaultLimit: env.RATE_LIMIT_DEFAULT,
       windowMs: env.RATE_LIMIT_WINDOW_MS,
@@ -177,6 +195,7 @@ function loadConfig(): AppConfig {
         brokers: config.kafka.brokers,
         sasl: config.kafka.sasl ? '[REDACTED]' : undefined
       },
+      queryService: config.queryService,
       rateLimit: config.rateLimit,
       serviceRegistry: config.serviceRegistry ? { 
         ...config.serviceRegistry, 
