@@ -1,0 +1,686 @@
+{
+  "info": {
+    "name": "API Gateway Collection",
+    "description": "Complete collection for the API Gateway with all endpoints, headers, and request bodies",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3002",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJ0ZW5hbnRJZCI6InRlc3QtdGVuYW50IiwiaWF0IjoxNjkzNDg4MDAwLCJleHAiOjk5OTk5OTk5OTl9.test-signature",
+      "type": "string",
+      "description": "JWT token for authentication (replace with valid token)"
+    },
+    {
+      "key": "tenant_id",
+      "value": "test-tenant",
+      "type": "string"
+    },
+    {
+      "key": "message_id",
+      "value": "msg_12345",
+      "type": "string"
+    },
+    {
+      "key": "conversation_id",
+      "value": "conv_67890",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health & Monitoring",
+      "item": [
+        {
+          "name": "Basic Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Basic health check endpoint"
+          }
+        },
+        {
+          "name": "Readiness Probe",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health/readiness",
+              "host": ["{{base_url}}"],
+              "path": ["health", "readiness"]
+            },
+            "description": "Kubernetes readiness probe - checks critical dependencies"
+          }
+        },
+        {
+          "name": "Deep Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health/deep",
+              "host": ["{{base_url}}"],
+              "path": ["health", "deep"]
+            },
+            "description": "Comprehensive health check with detailed dependency information"
+          }
+        },
+        {
+          "name": "Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/metrics",
+              "host": ["{{base_url}}"],
+              "path": ["metrics"]
+            },
+            "description": "Prometheus metrics endpoint"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Channel Management",
+      "item": [
+        {
+          "name": "List Channels",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/channels",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "channels"]
+            },
+            "description": "List available messaging channels and their capabilities"
+          }
+        },
+        {
+          "name": "Get Channel Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/channels/sms",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "channels", "sms"]
+            },
+            "description": "Get detailed information about a specific channel"
+          }
+        },
+        {
+          "name": "Get Channel Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/channels/sms/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "channels", "sms", "status"]
+            },
+            "description": "Get real-time status of a messaging channel"
+          }
+        },
+        {
+          "name": "Update Channel Config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"priority\": \"high\",\n  \"rateLimit\": {\n    \"perSecond\": 100,\n    \"perMinute\": 5000\n  },\n  \"retryPolicy\": {\n    \"maxRetries\": 3,\n    \"backoffMultiplier\": 2\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/channels/sms/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "channels", "sms", "config"]
+            },
+            "description": "Update channel configuration"
+          }
+        },
+        {
+          "name": "Test Channel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"testType\": \"connectivity\",\n  \"destination\": \"+1234567890\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/channels/sms/test",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "channels", "sms", "test"]
+            },
+            "description": "Test channel connectivity and configuration"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Message Operations",
+      "item": [
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"+1234567890\",\n  \"channel\": \"sms\",\n  \"content\": {\n    \"text\": \"Hello from API Gateway! This is a test message.\",\n    \"type\": \"text\"\n  },\n  \"conversationId\": \"conv_test_123\",\n  \"priority\": \"normal\",\n  \"metadata\": {\n    \"source\": \"postman-test\",\n    \"campaign\": \"test-campaign\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "messages"]
+            },
+            "description": "Send a message through the specified channel"
+          }
+        },
+        {
+          "name": "Send Email Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"test@example.com\",\n  \"channel\": \"email\",\n  \"content\": {\n    \"subject\": \"Test Email from API Gateway\",\n    \"text\": \"This is a test email message.\",\n    \"html\": \"<h1>Test Email</h1><p>This is a test email message.</p>\",\n    \"type\": \"email\"\n  },\n  \"priority\": \"normal\",\n  \"metadata\": {\n    \"source\": \"postman-test\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "messages"]
+            },
+            "description": "Send an email message"
+          }
+        },
+        {
+          "name": "Send Bulk Messages",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"messages\": [\n    {\n      \"to\": \"+1234567890\",\n      \"channel\": \"sms\",\n      \"content\": {\n        \"text\": \"Bulk message 1\",\n        \"type\": \"text\"\n      },\n      \"priority\": \"normal\"\n    },\n    {\n      \"to\": \"+0987654321\",\n      \"channel\": \"sms\",\n      \"content\": {\n        \"text\": \"Bulk message 2\",\n        \"type\": \"text\"\n      },\n      \"priority\": \"high\"\n    },\n    {\n      \"to\": \"test@example.com\",\n      \"channel\": \"email\",\n      \"content\": {\n        \"subject\": \"Bulk Email\",\n        \"text\": \"Bulk email message\",\n        \"type\": \"email\"\n      },\n      \"priority\": \"normal\"\n    }\n  ],\n  \"batchId\": \"batch_test_123\",\n  \"metadata\": {\n    \"campaign\": \"bulk-test\",\n    \"source\": \"postman\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/bulk",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "messages", "bulk"]
+            },
+            "description": "Send multiple messages in a single request"
+          }
+        },
+        {
+          "name": "Get Message Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/{{message_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "messages", "{{message_id}}", "status"]
+            },
+            "description": "Get the current status of a message"
+          }
+        },
+        {
+          "name": "Get Message Events",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/{{message_id}}/events",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "messages", "{{message_id}}", "events"]
+            },
+            "description": "Get the event history for a message"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Conversation Management",
+      "item": [
+        {
+          "name": "Get Conversation History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}/history?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "conversations", "{{conversation_id}}", "history"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Get the message history for a conversation"
+          }
+        },
+        {
+          "name": "Get Conversation History with Filters",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}/history?page=1&limit=10&direction=outbound&channel=sms&startDate=2024-01-01&endDate=2024-12-31",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "conversations", "{{conversation_id}}", "history"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "direction",
+                  "value": "outbound"
+                },
+                {
+                  "key": "channel",
+                  "value": "sms"
+                },
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-12-31"
+                }
+              ]
+            },
+            "description": "Get conversation history with filters (direction, channel, date range)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhook Endpoints",
+      "item": [
+        {
+          "name": "SMS Webhook (Twilio)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded",
+                "type": "text"
+              },
+              {
+                "key": "X-Twilio-Signature",
+                "value": "test-signature",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "MessageSid",
+                  "value": "SM1234567890abcdef",
+                  "type": "text"
+                },
+                {
+                  "key": "From",
+                  "value": "+1234567890",
+                  "type": "text"
+                },
+                {
+                  "key": "To",
+                  "value": "+0987654321",
+                  "type": "text"
+                },
+                {
+                  "key": "Body",
+                  "value": "Hello from webhook test",
+                  "type": "text"
+                },
+                {
+                  "key": "MessageStatus",
+                  "value": "received",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/webhooks/sms/{{tenant_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["webhooks", "sms", "{{tenant_id}}"]
+            },
+            "description": "Webhook endpoint for receiving SMS events from Twilio"
+          }
+        },
+        {
+          "name": "Email Webhook (SendGrid)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-SendGrid-Signature",
+                "value": "test-signature",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"event\": \"delivered\",\n    \"email\": \"test@example.com\",\n    \"timestamp\": 1693488000,\n    \"smtp-id\": \"<14c5d75ce93.dfd.64b469@ismtpd-555>\",\n    \"sg_event_id\": \"sg_event_id\",\n    \"sg_message_id\": \"sg_message_id\"\n  }\n]",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/webhooks/email/{{tenant_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["webhooks", "email", "{{tenant_id}}"]
+            },
+            "description": "Webhook endpoint for receiving email events from SendGrid"
+          }
+        },
+        {
+          "name": "Webhook Verification",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/webhooks/sms/{{tenant_id}}/verify?hub.mode=subscribe&hub.challenge=test-challenge&hub.verify_token=test-token",
+              "host": ["{{base_url}}"],
+              "path": ["webhooks", "sms", "{{tenant_id}}", "verify"],
+              "query": [
+                {
+                  "key": "hub.mode",
+                  "value": "subscribe"
+                },
+                {
+                  "key": "hub.challenge",
+                  "value": "test-challenge"
+                },
+                {
+                  "key": "hub.verify_token",
+                  "value": "test-token"
+                }
+              ]
+            },
+            "description": "Webhook verification endpoint for providers that require GET verification"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Root Endpoint",
+      "item": [
+        {
+          "name": "API Root",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": ["{{base_url}}"],
+              "path": [""]
+            },
+            "description": "Root endpoint returning API information"
+          }
+        }
+      ]
+    }
+  ]
+}

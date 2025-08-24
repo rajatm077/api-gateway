@@ -3,13 +3,19 @@ node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
 
 # Build artifacts
 dist
 build
 coverage
+.nyc_output
 
 # Environment files (will be mounted or set via environment)
+.env
+.env.*
+!.env.example
 .env.local
 .env.development
 .env.test
@@ -20,26 +26,38 @@ coverage
 .idea
 *.swp
 *.swo
+*~
 
 # OS files
 .DS_Store
 Thumbs.db
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 
 # Git
 .git
 .gitignore
+.gitattributes
 
 # Documentation
 README.md
 CHANGELOG.md
 docs/
+*.md
 
 # Testing
 *.test.js
 *.test.ts
+*.spec.js
+*.spec.ts
 test/
 tests/
 __tests__/
+jest.config.js
+.jest/
 
 # Logs
 logs/
@@ -51,8 +69,21 @@ pids
 *.seed
 *.pid.lock
 
+# Coverage directory used by tools like istanbul
+coverage/
+.nyc_output/
+
+# Dependency directories
+jspm_packages/
+
+# TypeScript cache
+*.tsbuildinfo
+
 # Optional npm cache directory
 .npm
+
+# Optional eslint cache
+.eslintcache
 
 # Optional REPL history
 .node_repl_history
@@ -62,6 +93,14 @@ pids
 
 # Yarn Integrity file
 .yarn-integrity
+
+# parcel-bundler cache
+.cache
+.parcel-cache
+
+# Temporary folders
+tmp/
+temp/
 
 # Docker files
 Dockerfile
@@ -73,3 +112,9 @@ docker-compose.*.yml
 scripts/validate-query-service.js
 scripts/dev-*
 scripts/test-*
+
+# Development tools
+.husky/
+.commitlintrc*
+.prettierrc*
+.eslintrc*
